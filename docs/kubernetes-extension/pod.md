@@ -145,6 +145,7 @@ kubectl get pods --v={1~9} # 숫자가 클수록 자세하게 로깅
 굉장히 여러 단계에 걸치고 값이 많지만 하나씩 단계를 확인한다.
 
 1. kubeconfig 파일 로드
+
 API 서버와 통신하기 위한 설정을 불러온다. 서버 정보, 클러스터 정보, 인증서 등등을 가지며 아래에 있는 내용은 실제 kubeconfig 파일의 내용이다.
 ```
 apiVersion: v1
@@ -196,7 +197,7 @@ HTTP Trace: Dial to tcp:127.0.0.1:50581 succeed
 
 GET https://127.0.0.1:50581/api/v1/namespaces/default/pods?limit=500 200 OK in 5 milliseconds
 ```
-API서버에 요청을 보내고 응답이 성공한걸 확인할 수 있다.
+`https://127.0.0.1:50581/api/v1/namespaces/default/pods?limit=500` 주소로 요청을 보냈고, 200 status code를 통해 요청이 성공적으로 이루어진걸 볼 수 있다.
 
 4. 응답
   

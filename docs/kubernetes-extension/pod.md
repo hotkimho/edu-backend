@@ -96,7 +96,7 @@ kubectl describe pod nginx-pod
 
 파드의 로그는 각 컨테이너에 출력되는 `표준 출력`, `표준 에러` 로그들을 기록한다.
 
-로그를 저장하는 위치는 컨테이너 런타임에 따라 다르지만 containerd를 사용하는 경우 `/var/log/pods/{pod-uid}/{container-name}/` 경로에 생성된다(버전에 따라 다를 수 있음)
+로그를 저장하는 위치는 컨테이너 런타임에 따라 다르지만 containerd를 사용하는 경우 `/var/log/pods/{pod-uid}/{container-name}/` 경로에 생성된다(실제로 확인한 결과 `/var/log/nginx`의 경로에 있었다)
 
 파드의 로그를 조회하는 방법은 아래와 같다.
 ```
@@ -128,9 +128,81 @@ kubectl port-forward nginx-pod 8888:80
 포트 포워드 명령을 통해 `nginx-pod`는 localhost:8888로 접근할 수 있게 되었다.
 
 ![image](./images/req-port-forward.png)
+
 직접 `localhost:88888`로 접근했을 때 요청이 성공한걸 볼 수 있다.
 
 이렇게 서비스를 사용하지 않고 개발 및 디버깅 용도로 사용할 수 있다.
+
+### 파드 요청 과정
+`kubectl get pods`
+
+일반적으로 파드를 조회할 때 위의 명령어를 사용한다. 그럼 위의 명령어는 어떻게 파드의 정보를 가져올까?
+어떻게 동작되는지 확인하기 위해 명령의 로그 상세 레벨을 확인하는 명령어가 있다.
+```
+kubectl get pods --v={1~9} # 숫자가 클수록 자세하게 로깅
+```
+![alt text](./images/pod-logging.png)
+굉장히 여러 단계에 걸치고 값이 많지만 하나씩 단계를 확인한다.
+
+1. kubeconfig 파일 로드
+API 서버와 통신하기 위한 설정을 불러온다. 서버 정보, 클러스터 정보, 인증서 등등을 가지며 아래에 있는 내용은 실제 kubeconfig 파일의 내용이다.
+```
+apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority: C:\Users\kimho\.minikube\ca.crt
+    extensions:
+    - extension:
+        last-update: Thu, 13 Jun 2024 20:44:08 KST
+        provider: minikube.sigs.k8s.io
+        version: v1.33.1
+      name: cluster_info
+    server: https://127.0.0.1:50581
+  name: minikube
+contexts:
+- context:
+    cluster: minikube
+    extensions:
+    - extension:
+        last-update: Thu, 13 Jun 2024 20:44:08 KST
+        provider: minikube.sigs.k8s.io
+        version: v1.33.1
+      name: context_info
+    namespace: default
+    user: minikube
+  name: minikube
+current-context: minikube
+kind: Config
+preferences: {}
+users:
+- name: minikube
+  user:
+    client-certificate: C:\Users\kimho\.minikube\profiles\minikube\client.crt
+    client-key: C:\Users\kimho\.minikube\profiles\minikube\client.key
+
+```
+
+2. 인증서 회전
+```
+I0613 22:21:58.114634    9156 cert_rotation.go:137] Starting client certificate rotation controller
+```
+인증서는 유효기간을 가지고 있어 보안을 위해 주기적으로 갱신을 해야한다. `인증서 회전`이라는 과정을 통해 인증서를 갱신하며, `인증서 회전 컨트롤러`가 이 역할을 수행한다.
+
+3. API 서버 요청 및 응답 확인
+```
+curl -v -XGET  -H "Accept: application/json;as=Table;v=v1;g=meta.k8s.io,application/json;as=Table;v=v1beta1;g=meta.k8s.io,application/json" -H "User-Agent: kubectl.exe/v1.29.1 (windows/amd64) kubernetes/bc401b9" 'https://127.0.0.1:50581/api/v1/namespaces/default/pods?limit=500'
+
+HTTP Trace: Dial to tcp:127.0.0.1:50581 succeed
+
+GET https://127.0.0.1:50581/api/v1/namespaces/default/pods?limit=500 200 OK in 5 milliseconds
+```
+API서버에 요청을 보내고 응답이 성공한걸 확인할 수 있다.
+
+4. 응답
+  
+응답된 response body를 보면 굉장히 많은 데이터가 왔지만 json parser을 통해 필요한 부분만 확인한다.
+![image](./images/response-body.png)
+json을 확인하면 실제로 파드에 조회되는 정보들(cells), 파드 이름, 파드에서 실행되는 container name까지 확인할 수 있다.
 
 ### 레이블
 레이블은 쿠버네티스 오브젝트(pod, deployment)에 첨부된 (키, 값) 형태의 값이다.
@@ -232,3 +304,33 @@ kubectl create namespace test-namespace
 ```
 
 YAML 매니페스트를 서버에 전송해서 네임스페이스를 생성/읽기/갱신/삭제 등 API 서버에 직접 전송해 실행할 수 있다.
+
+### 파드 삭제
+파드를 삭제할 때 `그레이스풀, 논 그레이스풀` 삭제 방식이 있다.
+그레이스풀 종료는 파드 내의 컨테이너가 종료 신호를 받으면, 상태를 저장하고 연결을 정리할 시간을 갖고 종료하는 작업을 말합니다.
+종료 시간은 기본적으로 `30초`이며 이는 명령어를 통해 수정할수 있습니다.
+
+그레이스풀 종료 방식은 다음과 같습니다.
+1. 파드 삭제 요청
+    
+`kubectl delete pod {pod name}` 명령어가 실행되면, 쿠버네티스 API 서버에 파드 요청을 보냄
+2. API 서버 요청 처리
+
+API서버에 파드 삭제 요청이 오면 API 서버는 etcd에 해당 파드의 상태를 업데이트하며, 파드를 가지고 있는 노드의 `kubelet`에 파드 삭제 신호를 보낸다. kubelet는 파드내의 모든 컨테이너에 `TERM`신호를 보낸다.
+
+3. 컨테이너 종료
+
+TERM 신호를 받은 컨테이너는 프로세스를 종료하며, 이때 연결을 종료하고 리소스를 정리한 후 프로세스를 종료한다.
+이는 그레이스풀 종료 시간(기본 30초)동안 종료되지 않으면 kubelet은 `kill`신호를 보내 강제로 종료한다.
+
+4. 종료 확인
+
+모든 컨테이너가 종료되면 kubelet은 API서버에 삭제가 완료되었다고 알리고 API 서버는 etcd에서 파드 객체를 삭제한다.
+이후 워커노드는 해당 파드가 사용중인 리소스를 해제한다.
+
+논 그레이스풀 종료는 위의 `3번과정`에서 컨테이너들을 강제로 kill 신호를 통해 즉시 종료하며 이 과정중 데이터의 손실이 발생할 수 있다.
+빠르게 컨테이너(파드)를 삭제하고 리소스를 해제할 순 있지만 데이터가 손실될 우려가 있다.
+
+
+
+

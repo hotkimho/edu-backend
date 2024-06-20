@@ -512,6 +512,11 @@ Always옵션을 사용하여 항상 이미지를 풀링 하더라도 kubelet이 
     - 옵션을 사용하지 않을 경우 `default` 네임스페이스 사용
     - kubectl get pods -n my-namespace
     - kubectl get pods -n kube-system
+  - 유용한 옵션
+    - kubectl get pods --show-labels: 모든 파드의 레이블 조회
+    - kubectl get events --sort-by=.metadata.creationTimestamp: 타임스탬프로 정렬된 이벤트 조회
+    - kubectl events --types=Warning: 모든 Warning 타입 이벤트 조회
+    - kubectl get pods --field-selector=status.phase=Running -n <namespace>: 네임스페이스의 모든 실핼중인 파드 조회
 
 모든 옵션, 명령어를 이해하고 사용하기 힘드므로 필요할 때 공식문서를 참조하여 확인합니다.
 

@@ -360,12 +360,12 @@ spec:
 파드를 생성할 때 각 컨테이너별 `필요한 리소스의 양을 요청하고 제한`할 수 있습니다.
 컨테이너에서 리소스를 설정하면 `kubelet`은 컨테이너가 설정한 제한보다 많은 리소스를 사용할 수 없도록 제한을 적용합니다.
 
-- spec.containers[].resources.limits
+- spec.containers[].resources
   - request
     - cpu
     - memory
     - hugepages-<size>
-  - request
+  - limit
     - cpu
     - memory
     - hugepages-<size>
@@ -599,3 +599,57 @@ ls 명령어는 파일이 있으면 종료 코드 0을 반환하고 아니면 0 
 `k exec {pod-name} -- touch /var/ready` 명령을 통해 파일을 만들었지만 컨테이너는 바로 생성되지 않고 일정 시간뒤에 생성되었다. 레디니스 프로브는 기본 10초 마다 프로브를 실행하여 검사하므로 실제론 파일이 생성되었지만 아직 상태 검사가 이루어지지 않아 발생한 일이다.
 
 마지막으로 레디니스 프로브는 항상 정의되어야 한다. 그렇지 않으면 `파드가 생성되는 즉시 서비스 엔드포인트가 되므로 요청을 수행 받을 준비가 되어 있지 않더라도 요청을 받을 수 있다.` 그래서 항상 레디니스 프로브를 정의헤야 한다.
+
+### Kubeconfig
+기본적으로 kubectl은 `$HOME/.kube` 디렉토리에 config 파일을 찾습니다.
+kubeconfig는 다음과 같은 정보를 가지고 있습니다.(아래에 값들은 내부 클러스터에 있는 kubeconfig파일이며 보안를 위해 일부 값들을 축소해서 표현했습니다.)
+1. clusters
+클러스터에 대한 정보를 정의합니다.
+
+```YAML
+clusters:
+- cluster:
+    certificate-authority-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS==...
+    server: https://10.60.160.171:6443
+  name: kubernetes
+```
+- name: 클러스터 이름을 명시합니다.
+- cluster
+  - server: 클러스터 내부 API 서버의 주소입니다.
+  - certificate-authority-data: 클러스터가 생성되면 CA인증서가 만들어지고 base64로 인코딩되어 저장됩니다.
+
+```
+certificate-authority-data(CA)값에 있는 인증서 파일을 통해 쿠버네티스 API 서버를 신뢰할 수 있는지 검증합니다.
+
+클라이언트는 API 서버의 인증서를 CA 인증서로 서명이 되어 있는지 확인하여 신뢰할 수 있는지 확인합니다.
+```
+
+2. users
+클라이언트의 인증 정보를 정의합니다.
+
+```YAML
+users:
+- name: kubernetes-admin
+  user:
+    client-certificate-data: LS0tLS1CRUdJTiBDRVJUSUZJ==
+    client-key-data: LS0tLS1CRUdJTiBQUklWQVRFIE=
+```
+
+`clinert-certificate-data`는 클라이언트 인증서 데이터를 base64로 인코딩한 값입니다. 클라이언트가 API서버에 접근 할 때 . 이인증서를 사용하여 자신을 인증합니다. 이 인증서는 클러스터의 CA 인증서로 서명되어 있어야 합니다.
+`client-key-data`는 클라이언트의 개인 키를 base64로 인코딩한 값입니다.
+클라이언트 인증서와 함께 사용되어 클라이언트의 신원을 증명하는데 필요한 암호화 작업을 수행합니다.
+
+
+3. context
+쿠버네티스 클러스터와 상호 작용할 때, 사용할 클러스터, 사용자, 네임스페이스를 가지고 있습니다. kubectl은 현재 컨텍스트의 매개 변수를 사용하여 클러스터와 통신합니다.
+네임스페이스가 없는 경우 `default` 네임스페이스를 사용합니다.
+
+```YAML
+contexts:
+- context:
+    cluster: kubernetes
+    user: kubernetes-admin
+  name: kubernetes-admin@kubernetes
+current-context: kubernetes-admin@kubernetes
+```
+클러스터, user, name을 확인할 수 있고 현재 어떤 클러스트를 사용 중인지 알 수 있습니다.

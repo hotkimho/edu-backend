@@ -771,3 +771,50 @@ contexts:
 current-context: kubernetes-admin@kubernetes
 ```
 클러스터, user, name을 확인할 수 있고 현재 어떤 클러스트를 사용 중인지 알 수 있습니다.
+
+### 컨테이너 상태
+컨테이너의 상태는 크게 3가지가 있습니다.
+1. Waiting
+
+Waiting 상태의 컨테이너는 시작을 완료하는데 필요한 작업(컨테이너 이미지를 가져오기)을 계속 실행하는 중인 상태입니다.
+kubectl을 사용하여 파드를 조회하면 컨테이너가 해당 상태에 있는 이유를 `Reason` 필드에 표시됩니다.
+Reason 필드는 [초기화 컨테이너 리스타트 정책별 정리](#초기화-컨테이너-다양한-케이스)에서 확인할 수 있습니다.
+
+1. Running
+
+Running 상태는 컨테이너가 문제없이 실행되고 있음을 의미합니다. 
+`postStart 라이프사이클 훅`이 설정되어 있었다면 이미 실행이 완료되었습니다.
+kubectl을 사용하여 Running 상태로 진입한 시기랑 정보를 확인할 수 있습니다.
+아래는 `kubectl describe pod <podname>`으로 실제 파드를 상세 조회한 정보입니다.
+
+```
+Containers:
+  main-container:
+    Container ID:   docker://5fe144a83de53f54738555abc973e1d73b1277d8d14c06bcacb59e7f1d6eb67c
+    Image:          nginx
+    Image ID:       docker-pullable://nginx@sha256:56b388b0d79c738f4cf51bbaf184a14fab19337f4819ceb2cae7d94100262de8
+    Port:           <none>
+    Host Port:      <none>
+    State:          Running
+      Started:      Thu, 20 Jun 2024 23:35:42 +0900
+    Ready:          True
+    Restart Count:  0
+    Environment:    <none>
+    Mounts:
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-lzjd5 (ro)
+```
+`State: Running`, `Started: <시간>` 을 통해 현재 컨테이너의 상태, 그리고 언제 Running으로 바뀌었는지 시간에 대한 정보를 알 수 있습니다.
+
+1. Terminated
+
+Terminated 상태는 작업을 완료하고 종료 하거나, 에러가 발생하여 종료된 상태를 의미합니다.
+컨테이너에 구성된 `preStop 라이프사이클 훅`이 설정되어 있는 경우 이 훅은 컨테이너가 Terminated 들어가기 전에 실행됩니다.
+[초기화 컨테이너 리스타트 정책별 정리](#초기화-컨테이너-다양한-케이스) 여기 예시에서
+```
+State: Terminated
+  Reason: `Completed` or `Error`
+  Exit Code: `종료 코드`
+  Started: `시간`
+  Finished: `시간`
+```
+형식을 확인할 수 있습니다.

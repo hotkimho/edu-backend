@@ -283,7 +283,7 @@ YAML 매니페스트를 서버에 전송해서 네임스페이스를 생성/읽�
 그레이스풀 종료 방식은 다음과 같습니다.
 1. 파드 삭제 요청
     
-`kubectl delete pod {pod name}` 명령어가 실행되면, 쿠버네티스 API 서버에 파드 요청을 보냄
+`kubectl delete pod {pod name} -n {namespace}` 명령어가 실행되면, 쿠버네티스 API 서버에 파드 요청을 보냄
 
 2. API 서버 요청 처리
 

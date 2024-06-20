@@ -358,11 +358,16 @@ spec:
 
 캡쳐한 사진을 보면 실제로 `Init:0/2` 의 상태가 보이며 시간에 지남에 따라 메인컨테이너가 실행된걸 알수 있다.
 
+그럼 초기화 컨테이너를 사용했을 때 어떤 큰 이점이 있을까?
+1. 초기화 작업 분리
+초기화 작업을 분리하여, 실패하더라도 해당 지점만 재실행하여 전체가 다시 초기화 되는 상황을 막을 수 있습니다.
+2. 의존성
+각 초기화 컨테이너가 성공적으로 실행되었다는 건 필요한 작업들 즉 의존성들이 준비가 됐다는걸 보장합니다.
+
 ### 초기화 컨테이너 다양한 케이스
 초기화 컨테이너가 실패한 경우, 실패했음 에도 다시 정상적으로 동작하는 경우등 다양한 옵션과 환경을 만들어서 테스트합니다.
-
-1. restartPolicy: Never
-```
+1. restartPolicy: Never(컨테이너가 종료되면 다시 시작하지 않음)
+```YAML
 apiVersion: v1
 kind: Pod
 metadata:
@@ -377,18 +382,101 @@ spec:
   - name: main-container
     image: nginx
 ```
-초기화 컨테이너가 실행되고 바로 종료시킵니다. `Never` 옵션이므로 이 파드는 재실행되지 않습니다.
+![alt text](./images/init-container-get-pod-never.png)
+![alt text](./images/init-container-get-describe-never.png)
+
+초기화 컨테이너가 실행되고 바로 종료(비정상 종료)됩니다. `Never` 옵션이므로, 의도치 않게 종료되어도 다시 실행되지 않습니다.
+파드를 조회하면 당연히 초기화 컨테이너가 비정상 종료된걸 확인할 수 있습니다. `restartPolicy: Never`이므로 시간이 지나도 파드는 재할당 되지 않습니다.
+
+`kubectl describe pod pod example-pod` 명령어로 상세조회 해보면 초기화 컨테이너에서 종료코드 1로 강제종료가 된걸 확인할 수 있습니다. 그리고 `Reason` 필드를 통해 어떤 이유로 종료 되었는지도 확인할 수 있었습니다.
+
+2. restartPolicy: Onfailure(컨테이너가 오류로 종료되는 경우만 재실행)
+```YAML
+apiVersion: v1
+kind: Pod
+metadata:
+  name: example-pod-onfailure
+spec:
+  restartPolicy: OnFailure
+  initContainers:
+  - name: init-container
+    image: busybox
+    command:
+    - sh
+    - -c
+    - |
+      if [ ! -f /tmp/success ]; then
+        echo "First attempt, failing..."
+        touch /tmp/success
+        exit 1
+      else
+        echo "Second attempt, succeeding..."
+        exit 0
+      fi
+    volumeMounts:
+    - name: tmp-volume
+      mountPath: /tmp
+  containers:
+  - name: main-container
+    image: nginx
+  volumes:
+  - name: tmp-volume
+    emptyDir: {}
+```
+이 매니페스트는 처음엔 실패, 그 이후 두 번째 요청은 성공하게 되어 있습니다. `restartPolicy: Onfailure` 옵션으로 설정되었기 때문에 오류로 종료된 경우 컨테이너가 재실행 되어야 합니다.
+ 
+![alt text](./images/init-container-get-pod-onfailure.png)
+![alt text](./images/init-container-get-describe-onfailure.png)
+```
+Events:
+  Type    Reason     Age                    From               Message
+  Normal  Scheduled  6m22s                  default-scheduler  Successfully assigned default/example-pod-onfailure to minikube
+  Normal  Pulled     6m20s                  kubelet            Successfully pulled image "busybox" in 1.974s (1.974s including waiting). Image size: 4261574 bytes.
+  Normal  Pulling    6m19s (x2 over 6m22s)  kubelet            Pulling image "busybox"
+  Normal  Created    6m17s (x2 over 6m20s)  kubelet            Created container init-container
+  Normal  Started    6m17s (x2 over 6m20s)  kubelet            Started container init-container
+  Normal  Pulled     6m17s                  kubelet            Successfully pulled image "busybox" in 1.876s (1.876s including waiting). Image size: 4261574 bytes.
+  Normal  Pulling    6m16s                  kubelet            Pulling image "nginx"
+  Normal  Pulled     6m14s                  kubelet            Successfully pulled image "nginx" in 1.998s (1.998s including waiting). Image size: 187667856 bytes.
+  Normal  Created    6m14s                  kubelet            Created container main-container
+  Normal  Started    6m14s                  kubelet            Started container main-container
+```
+파드 조회를 보면 1번 에러가 발생한 후, 정상적으로 메인 컨테이너가 실행되었습니다. 좀 더 자세하게 해당 파드를 살펴보면 `Reason 필드에 완료가 된걸로 처리되어 있고 exit code도 정상적으로 종료`되었습니다. 추가적으로 알게된 사실은 `Restart Count`가 기록되고 있었고 이 값을 통해 몇번 실패했는지 유추할 수 있었습니다. 이벤트 로그를 실제 메인 컨테이너가 실행된것도 확인할 수 있었습니다.
+
+3. restartPolicy: Always(종료된 경우 항상 컨테이너 재실행)
+초기화 컨테이너의 경우 지정된 작업을 수행하고 종료되어야 합니다.. 하지만 `restartPolicy: Always` 옵션을 준 경우 어떻게 될까?
+
+```YAML
+apiVersion: v1
+kind: Pod
+metadata:
+  name: example-pod-always
+spec:
+  restartPolicy: Always
+  initContainers:
+  - name: init-container
+    image: busybox
+    command: ["sh", "-c", "exit 1"]  # 항상 실패하도록 설정
+  containers:
+  - name: main-container
+    image: nginx
+```
+초기화 컨테이너는 항상 실패하게 되어 있습니다.
+![alt text](./images/init-container-get-pod-always.png)
+파드를 조회한 결과를 봤을 땐 굉장히 신기했습니다. 초기화 컨테이너는 계속 실패하고 다시 실행하고를 반복하고 상태가 `Error, CrashLoopBackOff`로 반복적으로 발생했습니다. 두 가지 상태가 번갈아가며 나타나는 이유는 다음 2가지가 반복적으로 동작하기 때문입니다.
+- 초기화 컨테이너 실패: 초기화 컨테이너가 실패하여 파드의 상태가 `Init:Error`로 됩니다.
+- 초기화 컨테이너가 실패하고 `재시작 정책`에 의해 지연 지연 시간이 발생하고, 이 지연 시간일 때 `CrashLoopBackOff` 상태로 보입니다.
+- 재시작 정책은 10, 20, 40.... 2의 지수로 증가하며, 컨테이너가 10분 동안 문제없이 동작하면 재시작 타이머는 `kubelet`에 의해 초기화됩니다.
+
+이런 이유 때문에 2가지 상태가 번갈아 가며 노출됩니다.
+![alt text](./images/init-container-get-describe-always.png)
+좀 더 상세하게 확인해보면 아직 초기화 컨테이너는 작업을 완료하지 않았으므로 `wating` 상태이며 반복된 실행으로 `Restart count:9`를 확인할 수 있습니다.
 
 
-그럼 초기화 컨테이너를 사용했을 때 어떤 큰 이점이 있을까?
-1. 초기화 작업 분리
-초기화 작업을 분리하여, 실패하더라도 해당 지점만 재실행하여 전체가 다시 초기화 되는 상황을 막을 수 있습니다.
-2. 의존성
-각 초기화 컨테이너가 성공적으로 실행되었다는 건 필요한 작업들 즉 의존성들이 준비가 됐다는걸 보장합니다.
 
 ### 컨테이너 리소스 제한
 파드를 생성할 때 각 컨테이너별 `필요한 리소스의 양을 요청하고 제한`할 수 있습니다.
-컨테이너에서 리소스를 설정하면 `kubelet`은 컨테이너가 설정한 제한보다 많은 리소스를 사용할 수 없도록 제한을 적용합니다.
+컨테이너에서 리소스를 설정하면 `kubelet`은 컨테이너가 설정한 제한보다 많은 리소스를 사용할 수 없도록 제한을 적용합니다. 
 
 - spec.containers[].resources
   - request

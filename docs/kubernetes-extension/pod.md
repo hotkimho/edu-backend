@@ -175,7 +175,7 @@ GET https://127.0.0.1:50581/api/v1/namespaces/default/pods?limit=500 200 OK in 5
 json을 확인하면 실제로 파드에 조회되는 정보들(cells), 파드 이름, 파드에서 실행되는 container name까지 확인할 수 있다.
 
 ### 레이블
-레이블은 쿠버네티스 오브젝트(pod, deployment)에 첨부된 (키, 값) 형태의 값이다.
+레이블은 쿠버네티스 모든 오브젝트에 첨부된 (키, 값) 형태의 값이다.
 어떻게 보면 각 오브젝트에 할당된 태그와 같다.
 이 값들은 레이블 셀렉터를 사용해 리소스를 선택할 때 활용된다.
 ![image](./images/label-pic.png)

@@ -897,3 +897,102 @@ lifecycle:
 ```
 위 사진은 일부러 실패하는 커맨드가 실행된 모습입니다.
 커맨드 명령이 실패하여 컨테이너가 종료되고 재실행됩니다. 그리고 `postStart 실패 기록은 event에 기록되며 위 사진처럼 확인할 수 있습니다.` 하지만 http 요청의 경우 400, 500번대 에러가 발생해도 실패로 간주가 안됩니다. 이유는 `응답 코드와는 별개로 HTTP 요청이 성공적으로 완료되었다고 처리되기 때문입니다(400, 500에러를 받은 것도 요청이 성공적으로 되었기 때문에 받을 수 있음)`. 400, 500번대를 에러로 처리하려면 별도의 커맨드로 응답 상태코드값을 받아와 검증하여 exit 시스템 콜을 사용해 컨테이너를 종료 처리해야 합니다.
+
+2. PreStop
+PreStop은 컨테이너가 종료되기 직전에 호출됩니다. 컨테이너가 이미 `Terminated`, `Completed` 상태인 경우 preStop 요청은 실패합니다. 컨테이너가 중지하기 위한 TERM 신호가 보내지기 전에 완료되어야 합니다. 그레이스 종료 기간(컨테이너가 종료되기 전 기다리는 최대 시간)은 preStop이 실행되기 전에 시작되어, 그레이스 종료 기간이 끝나면 preStop 결과에 상관없이 컨테이너는 강제로 종료됩니다.
+
+
+preStop가 실행되는 상황은 다음과 같습니다.
+- API 요청: 관리자가 직접 pod를 삭제하거나 컨테이너를 종료 하는 경우
+- 활성 프로브(라이브니스 프로브): 헬스 체크가 실패하여 컨테이너를 다시 시작하는 경우
+- 선점: 더 높은 우선순위의 파드를 실행하기 위해 현재 파드를 축출 하는 경우
+- 자원: 노드의 자원이 부족하여 일부 컨테이너를 종료할 때
+
+추가적으로 궁금할 수 있는 내용들입니다.
+```
+1. 컨테이너에게 TERM 신호가 보내지기 전에 preStop이 완료 되어야 하는데 그러면 preStop가 실핼중일 때 TERM 신호는 어떻게 처리되는가?
+`kubelet`에 의해 관리가되며, TERM 시그널은 preStop가 동작이 완료될 때까지 대기합니다. preStop가 완료되면 바로 TERM을 보내 컨테이너를 종료합니다.
+
+2. 그레이스 종료 기간 
+그레이스 종료 기간은 파드 단위로 설정된 컨테이너가 정상적으로 종료할 수 있도록 할당된 시간입니다. 이 값은 기본 30초를 가지며
+spce
+  - terminationGracePeriodSeconds: 60
+  container:
+  ...
+같은 형식으로 수정할 수 있습니다. 이 시간이 지나면 SIGKILL 신호를 보내 컨테이너를 강제로 종료합니다.
+```
+
+실제 preStop이 잘 동작되는지 확인해봅니다.
+```YAML
+# 성공 케이스
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pre-stop
+spec:
+  containers:
+  - name: pre-stop
+    image: nginx
+    lifecycle:
+      preStop:
+        exec:
+          command: ["/bin/sh", "-c", "echo 'PreStop for container1' >> /prestop.log; sleep 10"]
+```
+이 파드를 생성 후 삭제 하면서 preStop가 정상적으로 실행되었는지 확인합니다.
+![alt text](./images/pre-stop-suc.png)
+파드 삭제 API를 실행했습니다. 이후 preStop이 실행되고 10초만 sleep할 때 커맨드가 제대로 실행되었는지 확인한 결과입니다. preStop가 실행되어 로그파일을 생성했고 이후 다시 조회했을 땐 해당 파드가 삭제되었습니다.
+
+```YAML
+# 실패 케이스(일반적인 실패)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pre-stop
+spec:
+  containers:
+  - name: pre-stop
+    image: nginx
+    lifecycle:
+      preStop:
+        exec:
+          command: ["exit", "1"]
+
+--
+# 실패 케이스(그레이스 종료 시간)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pre-stop
+spec:
+  containers:
+  - name: pre-stop
+    image: nginx
+    lifecycle:
+      preStop:
+        exec:
+          command: ["/bin/sh", "-c", "echo 'PreStop for container1'; sleep 2000000"]
+```
+![alt text](./images/pre-stop-fail.png)
+그림을 보면 2개의 preStop 에러 이벤트가 있습니다.
+위가 그레이스종료시간(타임아웃)으로 실패한 경우도 아래가 일반적인 에러가 난 경우 실패를 의미합니다.
+
+PostStart의 용도
+- 초기화 작업: 메인 컨테이너가 생성된 후, 필요한 설정이나 초기화 작업 수행
+- 의존성 확인: 컨테이너가 의존하는 서비스나 리소스 확인
+- 로그 초기화: 컨테이너가 시작될 때 로그 파일을 초기화
+
+PreStop의 용도
+- 세션 종료: 컨테이너가 종료되기 전 연결된 클라이언트들에게 종료 전달
+- 데이터 저장: 종료되기 직전 로그파일이나 메모리의 중요한 데이터 저장
+- 자원 해제: 데이터베이스 close등 애플리케이션과 연결된 자원들을 정리
+
+```
+PostStart의 경우 초기화 컨테이너와 굉장히 유사합니다. 그럼 둘의 다른점은 무엇일까요?
+먼저 초기화 컨테이너는 별도의 컨테이너를 가지며, 메인 컨테이너가 실행되기 전에 실행됩니다. 하지만 postStart는 메인 컨테이너가 생성된 직후 실행되므로 초기화 컨테이너와 실행되는 위치에 차이가 있습니다.
+
+실행 순서는
+1. 초기화 컨테이너 실행
+2. 메인 컨테이너 생성
+3. PostStart 실행
+순서로 동작합니다.
+```

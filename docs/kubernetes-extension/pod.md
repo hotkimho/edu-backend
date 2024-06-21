@@ -780,7 +780,7 @@ Waiting 상태의 컨테이너는 시작을 완료하는데 필요한 작업(컨
 kubectl을 사용하여 파드를 조회하면 컨테이너가 해당 상태에 있는 이유를 `Reason` 필드에 표시됩니다.
 Reason 필드는 [초기화 컨테이너 리스타트 정책별 정리](#초기화-컨테이너-다양한-케이스)에서 확인할 수 있습니다.
 
-1. Running
+2. Running
 
 Running 상태는 컨테이너가 문제없이 실행되고 있음을 의미합니다. 
 `postStart 라이프사이클 훅`이 설정되어 있었다면 이미 실행이 완료되었습니다.
@@ -805,7 +805,7 @@ Containers:
 ```
 `State: Running`, `Started: <시간>` 을 통해 현재 컨테이너의 상태, 그리고 언제 Running으로 바뀌었는지 시간에 대한 정보를 알 수 있습니다.
 
-1. Terminated
+3. Terminated
 
 Terminated 상태는 작업을 완료하고 종료 하거나, 에러가 발생하여 종료된 상태를 의미합니다.
 컨테이너에 구성된 `preStop 라이프사이클 훅`이 설정되어 있는 경우 이 훅은 컨테이너가 Terminated 들어가기 전에 실행됩니다.
@@ -818,3 +818,82 @@ State: Terminated
   Finished: `시간`
 ```
 형식을 확인할 수 있습니다.
+
+### 컨테이너 라이프사이클 훅
+```
+앞서 컨테이너의 상태에서 Running, Terminated 상태에서 라이프사이클 각각 PostStart, PreStop에 대해 언급했습니다. 여기서 좀 더 자세하게 어떤 동작인지 살펴봅니다.
+```
+컨테이너에서 사용되는 라이프사이클 훅은 2개가 있습니다.
+1. PostStart
+이 훅은 컨테이너 생성 직후에 실행됩니다. 하지만 컨테이너 엔트리포인트에 앞서서 실행된다는 보장은 없습니다.
+
+```
+컨테이너가 생성이 된 후 바로 실행되는데, 컨테이너 엔트리포인트에 앞서서 실행된다는 보장이 없다는게 무슨말일까요?
+
+먼저 컨테이너 생성과 실행을 구분해야합니다.
+- 컨테이너 생성:` 컨테이너가 생성되고 실행할 준비가 되었고, 아직 엔트리포인트나 CMD 명령어가 실행되기되기 전 상태`
+- 컨테이너 실행: `컨테이너가 생성된 후, 엔트리포인트나 CMD가 실행되어 컨테이너가 동작한 상태`
+```
+즉 `PostStart`는 `컨테이너 생성 직후` 실행되며 `컨테이너 생성 후 - 컨테이너 실행 전`, `컨테이너 생성 후 - 컨테이너 실행 후 즉시` 실행될 수 있습니다. 하지만 둘 중 어느 단계에서 실행되는지 알 수 없습니다.
+
+실제 동작을 테스트 해봅니다.
+```YAML
+apiVersion: v1
+kind: Pod
+metadata:
+  name: poststart-test
+spec:
+  containers:
+  - name: poststart-test
+    image: nginx
+    lifecycle:
+      postStart:
+        exec:
+          command: ["/bin/sh", "-c", "echo Hello from the postStart handler > /usr/share/message"]
+
+--
+apiVersion: v1
+kind: Pod
+metadata:
+  name: poststart-test
+spec:
+  containers:
+  - name: poststart-test
+    image: nginx
+    lifecycle:
+      postStart:
+        httpGet:
+          path: /
+          port: 80
+          host: localhost
+          scheme: HTTP
+          #httpHeaders
+          #  - name: Key
+          #    value: value
+
+```
+- spec
+  - containers
+    - lifecycle
+      - postStart(둘 중 하나만 사용 가능)
+        - exec: 스크립트, 특정 커맨드 실행 가능
+        - HTTP: http 요청 실행 가능
+
+```SHELL
+kubectl exec -it <pod-name> -- /bin/sh
+cat /usr/share/message # 파일이 생성된 걸 확인
+
+kubectl logs <pod-name> # 요청이 로그 확인
+```
+컨테이너에 직접 들어가 파일이 생성된 걸 확인하거나 컨테이너의 로그를 조회하여 요청이 성공적으로 이루어진 걸 확인하면 됩니다. 
+하지만 실패한 경우 상황에 따라 `postStart가 종료될 수 있고, 성공적으로 실행된 걸로 간주될 수 있습니다.`
+
+![alt text](./images/post-start-fail-cmd.png)
+```
+lifecycle:
+      postStart:
+        exec:
+          command: ["/bin/sh", "-c", "echo Hello from the postStart handler > /ho/ho"]
+```
+위 사진은 일부러 실패하는 커맨드가 실행된 모습입니다.
+커맨드 명령이 실패하여 컨테이너가 종료되고 재실행됩니다. 그리고 `postStart 실패 기록은 event에 기록되며 위 사진처럼 확인할 수 있습니다.` 하지만 http 요청의 경우 400, 500번대 에러가 발생해도 실패로 간주가 안됩니다. 이유는 `응답 코드와는 별개로 HTTP 요청이 성공적으로 완료되었다고 처리되기 때문입니다(400, 500에러를 받은 것도 요청이 성공적으로 되었기 때문에 받을 수 있음)`. 400, 500번대를 에러로 처리하려면 별도의 커맨드로 응답 상태코드값을 받아와 검증하여 exit 시스템 콜을 사용해 컨테이너를 종료 처리해야 합니다.

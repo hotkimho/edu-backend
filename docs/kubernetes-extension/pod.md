@@ -996,3 +996,133 @@ PostStart의 경우 초기화 컨테이너와 굉장히 유사합니다. 그럼 
 3. PostStart 실행
 순서로 동작합니다.
 ```
+
+### 쿠버네티스에서 리소스를 관리하는 방법
+`kubelet`이 파드의 컨테이너를 시작할 때, 각 컨테이너별 `정의된 cpu/메모리의 요청과 제한을 컨테이너 런타임에게 전달`합니다.
+`컨테이너 런타임은 적용될 커널의 cgroup 기능을 사용하여 리소스에 대한 제한`을 겁니다.
+
+CPU
+- cpu 요청은 가중치에 의해 결정됩니다. `파드내에 여러 컨테이너가 실행되는 경우, cpu 요청값이 더 큰 컨테이너가 더 많은 CPU 시간을 할당`받습니다.
+- cpu 제한은 해당 컨테이너가. 사용할 수 있는 상한으로 정의됩니다. `일정 간격 마다 리눅스 커널이 이 제한을 초과되었는지 확인하고, 초과된 경우 cgroup에 의해 cpu자원을 사용하지 못하고, 제한이 제한보다 작아진 경우 다시 cpu 자원을 사용`합니다.
+
+메모리
+- 메모리 요청은 파드 스케줄링 과정(메모리를 수용할 수 있는 파드에 할당)에서 사용됩니다. 컨테이너 런타임은 메모리 요청 값을 참고하여 cgroup v2인 경우, `memory.min` 설정을 구성합니다.
+- 메모리 제한은 해당 cgroup의 메모리 사용량 상한을 정의합니다. 컨테이너가 제한된 용량보다 더 많은 메모리를 할당받으려고 시도하면, `리눅스 커널의 메모리 부족 시스템이 활성화되고, 메모리를 할당 받으려고 했던 컨테이너의 프로세스 중 하나를 종료`합니다. 만약 종료한 프로세스의 PID가 1(메인 프로세스)라면 컨테이너는 종료되고, 재시작 정책이 `Always, OnFailure`이면 `kubelet`에 의해 컨테이너는 재실행됩니다.
+- 메모리 제한의 경우 메모리 기반 볼륨(emptyDir)에서 medium 속성을 memory로 적용하면 위의 제한을 똑같이 적용할 수 있습니다.
+
+### cgroup v2
+cgroup2은 cgroup의 성능을 개선한 새로운 버전입니다.
+
+cgroup2에서 메모리는 `memory.max`, `memory.current`, `memory.high`, `memory.low`, `memory.min` 설정파일을 제공합니다.
+min, max에 대해서만 내용을 작성합니다.
+
+이 파일은 cgroup에서 메모리 사용 보장을 위해 사용되는 설정 파일입니다. 각 파일은 바이트를 값으로 가지고 있습니다. ex) 268435456(256Mib을 가짐)
+- memory.min: 절대적으로 보장되는 최소 메모리의 양입니다. 시스템 메모리가 부족한 상황에서도 이 설정값은 보장됩니다. 부족하면 다른 컨테이너(cgroup)에서 메모리를 회수해서라도 이 메모리 사용을 유지합니다.
+- memory.max: 사용할 수 있는 최대 메모리 양입니다. 이 값을 초과하려고 시도하면 메모리 할당이 실패하고 OOM(Out Of Memory)가 발생하여 컨테이너의 프로세스 중 하나를 종료합니다.
+
+예시를 들어 설명하겠습니다.
+```YAML
+apiVersion: v1
+kind: Pod
+metadata:
+  name: memory-limits-example
+spec:
+  containers:
+  - name: container
+    image: nginx
+    resources:
+      requests:
+        memory: "512Mi"
+      limits:
+        memory: "1024Mi"
+```
+이 매니페스트 파일은 메모리에 512MiB를 요청하고, 1024MiB로 제한을 걸었습니다.
+이 설정이 적용되면 해당 파드에 있는 cgroup v2의 메모리 파일들은 다음과 같이 설정됩니다.
+- memory.min: 메모리 요청값(512MiB) 절대적으로 보장받는 최소 메모리
+- memory.max: 메모리 제한값(1024MiB) 최대 사용 가능 메모리
+이 컨테이너는 512MiB 메모리를 최소로 보장하며 1024MiB 사용량을 넘는 시도가 있으면 OOM이 발생하여 해당 컨테이너의 프로세스 중 하나를 종료합니다.
+
+### LimitRange
+파드를 정의할 때 각 컨테이너의 리소스를 요청, 제한할 수 있습니다. 하지만 이 리소스 값을 정의하지 않으면 2가지 중 1개의 동작이 일어납니다.
+- 아무 노드에 배치될 수 있으며, 제한이 없어 자원을 무제한으로 사용할 수 있는 컨테이너
+- LimitRange 객체에 의해 디폴트 값이 설정됨
+
+확인을 위해 요청과 제한이 있는 파드와 리로스 제한이 없는 파드를 생성하겠습니다.
+```YAML
+# 리소스 요청과 제한
+apiVersion: v1
+kind: Pod
+metadata:
+  name: resource-limit
+spec:
+  containers:
+  - name: container
+    image: nginx
+    resources:
+      requests:
+        memory: "512Mi"
+      limits:
+        memory: "1024Mi"
+--
+# 리소스 무제한
+apiVersion: v1
+kind: Pod
+metadata:
+  name: no-resource-limits
+spec:
+  containers:
+  - name: container
+    image: busybox
+    command: ["sh", "-c", "sleep 3600"]
+```
+
+![alt text](./images/resource-limit.png)
+![alt text](./images/resource-no-limit.png)
+각각 생성된 파드를 보면 리소스에 제한이 걸린게 있고 리로스 필드 자체가 없는걸 볼 수 있습니다.
+
+리소스에 제한이 없는 컨테이너는 파드내의 모든 자원을 혼자 사용할 수 있으므로 반드시 생성되지 않게 해야합니다.
+쿠버네티스에선 이를위해 LimitRange를 지원하여 네임스페이스 단위로 디폴트 값을 설정할 수 있습니다.
+
+```YAML
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: limit-range
+  namespace: default
+spec:
+  limits:
+  - max:
+      cpu: "2"
+      memory: "2Gi"
+    min:
+      cpu: "200m"
+      memory: "512Mi"
+    default:
+      cpu: "500m"
+      memory: "1Gi"
+    defaultRequest:
+      cpu: "200m"
+      memory: "512Mi"
+    type: Container
+```
+- max
+  - 컨테이너가 요청할 수 있는 최대 리소스
+- min
+  - 컨테이너가 요청할 수 있는 최소 리소스
+- default
+  - 컨테이너에 리소스 `제한`이 설정되어 있지 않으면 설정되는 값
+- defaultRequest
+  - 컨테이너에 리소스 `요청`이 설정되어 있지 않으면 설정되는 값
+
+만약 min ~ max의 범위를 벗어나는 값을 할당하면
+```
+Error from server (Forbidden): error when creating "rs.yaml": pods "resource-limit" is forbidden: maximum memory usage per Container is 2Gi, but limit is 6000Mi
+```
+파드를 생성할 때 에러가 발생하여 생성할 수 없습니다.
+그리고 이제 리소스 요청, 제한 없이 `default namespace`에서 파드를 생성하면
+
+![alt text](./images/limitrange-result.png)
+리소스가 자동으로 할당된 걸 확인할 수 있었습니다.
+
+![alt text](./images/limit-range-another-namespace.png)
+다른 네임스페이스(kube-public)에서 파드를 생성했지만 리소스에 대한 디폴트 값이 적용되지 않은 것도 확인할 수 있었습니다.

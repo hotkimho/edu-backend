@@ -595,13 +595,67 @@ Known Labels(노운 레이블)은 `쿠버네티스와 관련된 기능 및 메�
   - kubelet이 컨테이너를 가동할 때마다, 이미지를 풀링 시도
   - 이미 로컬에 컨테이미지가 있는 경우 캐시된 이미지를 사용
 - IfNotPresent
-  - 이미지가 로컬에 없는 경우 풀링 시도
+  - 이미지가 로컬에 없는 경우에만 이미지를 내려받음
 - Never
   - 이미지를 풀링하지 않으며 로컬에 이미지가 있는 경우 컨테이너를 실행
   - 이미지가 로컬에 존재하지 않는 경우 실패함
 
 Always옵션을 사용하여 항상 이미지를 풀링 하더라도 kubelet이 캐싱된 이미지가 있으면 사용하기 때문에 always를 사용해도 일반적인 상황에선 효율적입니다.
 
+기본 이미지 정책에 대해서 알아봅니다.
+- 기본값이 Always가 되는 경우
+  - `imagePullPolicy를 명시하지 않고` 이미지의 태그가 `latest`인 경우
+  - `imagePullPolicy를 명시하지 않고` 이미지 태그를 `명시하지 않은` 경우
+- 기본값이 IfNotPresent가 되는 경우
+  - `imagePullPolicy를 명시하지 않고` 이미지 태그가 `latest`가 아닌 경우
+
+테스트에 사용한 매니페스트 파일입니다.
+```YAML
+# policy 명시하지 않고 태그가 latest인 경우
+apiVersion: v1
+kind: Pod
+metadata:
+  name: image-pull-policy-1
+spec:
+  containers:
+  - name: container
+    image: nginx:latest  # latest 태그를 사용
+
+--
+# policy 명시하지 않고 태그를 명시하지 않은 경우
+apiVersion: v1
+kind: Pod
+metadata:
+  name: image-pull-policy-no-tag
+spec:
+  containers:
+  - name: container
+    image: nginx
+
+--
+# policy 명시하지 않고 특정 버전의 태그를 사용한 경우
+Version: v1
+kind: Pod
+metadata:
+  name: image-pull-policy-tag
+spec:
+  containers:
+  - name: container
+    image: busybox:1.28
+    command: ["sh", "-c", "policy test && sleep 360000"]
+```
+
+![alt text](./images/image-pull-policy-latest.png)
+정책을 명시하지 않고 latest 태그인 경우, Always로 설정되었습니다.
+
+![alt text](./images/image-pull-policy-no-tag.png)
+정책, 태그를 명시하지 않은 경우, Always로 설정되었습니다.
+
+![alt text](./images/image-pull-policy-tag.png)
+정책을 명시하지 않고, 특정 버전의 태그를 사용한 경우, IfNotPresent로 설정되었습니다.
+
+
+기본 이미지 정책은 오브젝트가 처음 생성될 때 설정되고 그 이후 이미지의 태그가 바뀌더라도 업데이트 되지 않습니다. 이후 변경을 원하면 수동으로 변경해줘야 합니다.
 ### kubectl get
 쿠버네티스는 `kubectl` CLI 도구를 통해 쿠버네티스 API와 소통합니다. 그 중 `kubectl get ...` 명령은 쿠버네티스의 오브젝트를 조회하는 명령어로 굉장히 많이 사용됩니다.
 
@@ -1126,3 +1180,5 @@ Error from server (Forbidden): error when creating "rs.yaml": pods "resource-lim
 
 ![alt text](./images/limit-range-another-namespace.png)
 다른 네임스페이스(kube-public)에서 파드를 생성했지만 리소스에 대한 디폴트 값이 적용되지 않은 것도 확인할 수 있었습니다.
+
+### 디폴트 설정들

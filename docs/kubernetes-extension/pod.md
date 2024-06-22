@@ -1283,3 +1283,190 @@ Containers:
 - Terminated(Complted): 작업 완료 후 종료
 
 
+Pending, Failed 상태를 가지는 파드를 만들고 결과를 확인합니다.
+```YAML
+# Pending Status
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pending-pod
+spec:
+  containers:
+  - name: large-resource-container
+    image: busybox
+    command: ["sh", "-c", "echo Pending...; sleep 3600"]
+    resources:
+      requests:
+        memory: "100Ti"
+        cpu: "1000"
+
+--
+
+# Failed Status
+apiVersion: v1
+kind: Pod
+metadata:
+  name: failed-pod
+spec:
+  restartPolicy: Never
+  containers:
+  - name: failing-container
+    image: busybox
+    command: ["sh", "-c", "exit 1"]
+```
+
+```YAML
+# describe pending-pod 
+Name:             pending-pod
+Namespace:        default
+Annotations:      <none>
+Status:           Pending
+Containers:
+  large-resource-container:
+    Command:
+      sh
+      -c
+      echo Pending...; sleep 3600
+    Requests:
+      cpu:        1k
+      memory:     100Ti
+
+# describe failed-pod
+Name:             failed-pod
+Namespace:        default
+Status:           Failed
+Containers:
+  failing-container:
+    Command:
+      sh
+      -c
+      exit 1
+    State:          Terminated
+      Reason:       Error
+      Exit Code:    1
+      Started:      Sat, 22 Jun 2024 22:42:49 +0900
+      Finished:     Sat, 22 Jun 2024 22:42:49 +0900
+    Restart Count:  0
+```
+의도한 대로 파드의 상태를 확인할 수 있습니다.
+
+### 파드 컨디션
+파드 컨디션은 `파드의 현재 상태를 상세하게 설명하는 정보`입니다. 파드가 특정 조건을 만족하는지를 나타내는 데이터입니다.
+
+파드 컨디션의 값은 세 가지 중 하나입니다.
+- True: 해당 컨디션을 만족
+- False: 해당 컨디션 만족되지 않음
+- Unknown: 해당 컨디션의 상태를 알 수 없음
+
+주요한 파드 컨디션들은 다음과 같습니다.
+
+1. PodScheduled
+
+파드가 특정 노드에 스케줄 되었음을 나타냅니다. 
+
+2. PodHanNetwork(알파기능, 사용시 명시적으로 활성화 필요)
+
+샌드박스가 성공적으로 생성되고 네트워킹이 구성됨을 의미합니다.
+
+3. ContainersReady
+
+파드의 모든 컨테이너가 준비되었음을 나타냅니다. 모든 컨테이너가 `레디니스 프로브`를 통과했음을 의미합니다.
+
+4. Initialized
+
+모든 초기화 컨테이너가 성공적으로 완료되었음을 나타냅니다.
+
+5. Ready
+
+파드가 요청을 처리할 준비가 되었고, 일치하는 모든 서비스의 로드 밸런싱 풀에 추가되어야 합니다.
+
+각 파드 컨디션의 필드는 다음과 같이 구성됩니다.
+- type
+  - 컨디션의 이름입니다. ex) `Ready`, `PodScheduled`
+- status
+  - 해당 컨디션이 적용 가능한지 여부를 나타냅니다. ex) `True`, `False`
+- lastProbeTime
+  - 컨디션이 마지막으로 프로브된 시간의 타임스탬프를 의미합니다. ex) `null`, `timestamp`
+- lastTransitionTime
+  - 파드가 다른 상태로 전환된 마지막 시간의 타임스탬프를 의미합니다.
+- reason
+  - 컨디션의 마지막 전환에 대한 이유(UpperCacmeCase)를 나타냅니다.
+- message
+  - 마지막 상태 전환에 대한 세부 정보를 나타내는 메시지입니다.
+
+ 
+위에서 이미 작성한 파드를 통해 결과를 확인해봅니다.
+```YAML
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-status
+spec:
+  restartPolicy: OnFailure
+  containers:
+  - name: running-container
+    image: busybox
+    command: ["sh", "-c", "while true; do echo Running...; sleep 10000; done"]
+  - name: failed-container
+    image: busybox
+    command: ["sh", "-c", "exit 1"]
+  - name: completed-container
+    image: busybox
+    command: ["sh", "-c", "echo Hello, World!; sleep 5"]
+```
+이 파드는 각각 `실행 중, 작업완료 후 종료, 실패 후 재실행` 컨테이너로 구성되어 있습니다.
+```YAML
+Containers:
+  running-container:
+    Command:
+      sh
+      -c
+      while true; do echo Running...; sleep 10000; done
+    State:          Running
+      Started:      Sat, 22 Jun 2024 22:33:42 +0900
+    Ready:          True
+    Restart Count:  0
+  failed-container:
+    Command:
+      sh
+      -c
+      exit 1
+    State:          Waiting
+      Reason:       CrashLoopBackOff
+    Last State:     Terminated
+      Reason:       Error
+      Exit Code:    1
+      Started:      Sat, 22 Jun 2024 23:31:08 +0900
+      Finished:     Sat, 22 Jun 2024 23:31:08 +0900
+    Ready:          False
+    Restart Count:  16
+  completed-container:
+    Command:
+      sh
+      -c
+      echo Hello, World!; sleep 5
+    State:          Terminated
+      Reason:       Completed
+      Exit Code:    0
+      Started:      Sat, 22 Jun 2024 22:33:46 +0900
+      Finished:     Sat, 22 Jun 2024 22:33:51 +0900
+    Ready:          False
+
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   True
+  Initialized                 True
+  Ready                       False
+  ContainersReady             False
+  PodScheduled                True
+```
+- PodReadyToStartContainers(쿠버네티스 1.29버전에서 베타 단계로 도입된 컨디션)
+  - 파드가 컨테이너를 시작할 준비가 되었는지 여부를 나타냅니다. 
+- Initialized
+  - 모든 초기화 컨테이너가 성공적으로 완료되었습니다.(초기화 컨테이너가 없으면 True로 됩니다)
+- Ready
+  - 하나 이상의 컨테이너가 준비되지 않았기 때문에 파드가 요청을 처리할 준비가 되지 않았으므로 False로 표시됩니다.
+- ContainersReady
+  - 파드 내 하나 이상의 컨테이너가 준비되지 않았으므로 False로 표시됩니다.
+- PodScheduled
+  - 파드가 노드에 성공적으로 배치되었으므로 True로 표시됩니다.

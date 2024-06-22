@@ -710,6 +710,46 @@ spec:
 
 결과적으로 컨테이너에서 에러가 발생하거나, 라이브니스 프로브가 실패한 경우 노드의 `kubelet`은 해당 컨테이너를 재시작한다.
 
+라이브니스 프로브는 다음과 같은 옵션을 가지고 있습니다.
+- spec
+  - containers
+    - livenessProbe
+      - initialDelaySeconds: 0(디폴트) <컨테이너가 시작된 후 N초 대기한 뒤 첫 번쨰 라이브니스 프로브 실행>
+      - periodSeconds: 10(디폴트) <이후 매 N초마다 프로브를 실행>
+      - timeoutSeconds: 1(디폴트) <프로브 요청이 2초 내에 완료되어야 합니다>
+      - failureThreshold: 3(디폴트) <프로브가 3번 연속 실패하면 컨테이너를 재시작합니다>
+```YAML
+apiVersion: v1
+kind: Pod
+metadata:
+  name: liveness-test
+spec:
+  containers:
+  - name: nginx
+    image: nginx
+    ports:
+    - containerPort: 80
+    livenessProbe:
+      httpGet:
+        path: /ho/ho
+        port: 80
+      initialDelaySeconds: 10
+      periodSeconds: 10
+```
+이 매니페스트를 실행한 후 파드의 정보를 조회해봅니다.
+
+![alt text](./images/liveness-probe.png)
+```YAML
+Containers:
+  nginx:
+    State:          Waiting
+      Reason:       CrashLoopBackOff
+    Ready:          False
+    Restart Count:  13
+    Liveness:       http-get http://:80/ho/ho delay=10s timeout=1s period=10s #success=1 #failure=3
+```
+`/ho/ho`로 없는 존재하지 않는 URL로 요청하여 404에러가 발생한것을 확인할 수 있습니다.
+
 
 ### 레디니스 프로브
 레디니스 프로브는 `주기적으로 호출되며 특정 파드가 클라이언트 요청을 수신할 수 있는지 결정`한다. 컨테이너의 레디니스 프로브가 성공을 반환하며 요청을 처리할 준비가 됐다는 의미이다.
@@ -1454,14 +1494,36 @@ Containers:
 
 Conditions:
   Type                        Status
-  PodReadyToStartContainers   True
   Initialized                 True
   Ready                       False
   ContainersReady             False
   PodScheduled                True
+
+
+# 별도로 조회한 파드 컨디션 필드
+status:
+  conditions:
+  - lastProbeTime: null
+    lastTransitionTime: "2024-06-22T13:33:39Z"
+    status: "True"
+    type: Initialized
+  - lastProbeTime: null
+    lastTransitionTime: "2024-06-22T13:33:39Z"
+    message: 'containers with unready status: [failed-container completed-container]'
+    reason: ContainersNotReady
+    status: "False"
+    type: Ready
+  - lastProbeTime: null
+    lastTransitionTime: "2024-06-22T13:33:39Z"
+    message: 'containers with unready status: [failed-container completed-container]'
+    reason: ContainersNotReady
+    status: "False"
+    type: ContainersReady
+  - lastProbeTime: null
+    lastTransitionTime: "2024-06-22T13:33:39Z"
+    status: "True"
+    type: PodScheduled
 ```
-- PodReadyToStartContainers(쿠버네티스 1.29버전에서 베타 단계로 도입된 컨디션)
-  - 파드가 컨테이너를 시작할 준비가 되었는지 여부를 나타냅니다. 
 - Initialized
   - 모든 초기화 컨테이너가 성공적으로 완료되었습니다.(초기화 컨테이너가 없으면 True로 됩니다)
 - Ready

@@ -1181,4 +1181,105 @@ Error from server (Forbidden): error when creating "rs.yaml": pods "resource-lim
 ![alt text](./images/limit-range-another-namespace.png)
 다른 네임스페이스(kube-public)에서 파드를 생성했지만 리소스에 대한 디폴트 값이 적용되지 않은 것도 확인할 수 있었습니다.
 
-### 디폴트 설정들
+### 파드 상태
+파드는 정의된 라이프사이클을 따릅니다. `Pending`단계부터 시작해서 `Running`, `Succeeded`, `Failed` 단계로 이동합니다.
+
+파드가 실행되는 동안, `kubelet`은 오류나 문제를 해결하기위해 컨테이너는 다시 시작될 수 있습니다. 그리고 파드 오브젝트의 상태는 `파드 컨디션`으로 구성됩니다. 
+
+파드의 정의된 상태는 다음과 같습니다.
+
+1. Pending
+
+파드가 생성되었지만 컨테이너가 실행되지 않은 상태입니다. 파드는 `스케줄러에 의해 노드에 배치` 전 상태이거나 배치된 직후의 상태입니다. `초기화 컨테이너는 실행 중/실행 완료된 상황이어도 메인 컨테이너가 실행`되지 않은 상태입니다.
+이 과정에서 컨테이너 이미지 풀링 또한 같이 이루어집니다.
+
+2. Running 
+
+파드내에 모든 컨테이너가 생성되었고, 하나 이상의 컨테이너가 정상적으로 실행 중이거나 시작/재시작 중에 있습니다.
+
+3. Succeeded
+
+파드가 특정 작업을 성공적으로 완료 했음을 나타내는 상태입니다. 일반적으로 `잡`과 같은 일회성 작업에 사용됩니다.
+
+파드내에 모든 컨테이너가 정상적으로 종료되었고, 다시 시작하지 않을 때 적용됩니다. 하나라도 컨테이너가 작업에 실패하면 `Failed` 상태가 됩니다.
+
+데이터 가공(변환), 백업 등 일회성 작업에 사용됩니다.
+
+4. Failed
+
+파드내에 모든 컨테이너가 종료되었고, 하나 이상의 컨테이너가 실패로 종료된 상태입니다. 만약 3개의 컨테이너 중 2개가 실행 중이고, 1개가 실패로 종료되어도 파드는 모든 컨테이너가 종료되지 않았기 때문에 Running 상태를 유지합니다.
+
+5. Unknown
+어떤 이유에 의해서 파드의 상태를 얻을 수 없습니다. 이 단계는 일반적으로 파드가 실행되어야 하는 노드와 통신 오류로 인해 발생합니다.
+
+1개의 파드 안에 여러 개의 컨테이너를 실행하고 상태를 확인하겠습니다.
+```YAML
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-status
+spec:
+  restartPolicy: OnFailure
+  containers:
+  - name: running-container
+    image: busybox
+    command: ["sh", "-c", "while true; do echo Running...; sleep 10000; done"]
+  - name: failed-container
+    image: busybox
+    command: ["sh", "-c", "exit 1"]
+  - name: completed-container
+    image: busybox
+    command: ["sh", "-c", "echo Hello, World!; sleep 5"]
+    
+```
+3개의 컨테이너가 시작됩니다. 1개는 정상, 1개는 실패, 1개는 정상적으로 작업을 완료하는 3개의 컨테이너 입니다.
+```YAML
+Name:             pod-status
+Namespace:        default
+Status:           Running
+Containers:
+  running-container:
+    Command:
+      sh
+      -c
+      while true; do echo Running...; sleep 10000; done
+    State:          Running
+      Started:      Sat, 22 Jun 2024 22:24:14 +0900
+  failed-container:
+    Command:
+      sh
+      -c
+      exit 1
+    State:          Waiting
+      Reason:       CrashLoopBackOff
+    Last State:     Terminated
+      Reason:       Error
+      Exit Code:    1
+      Started:      Sat, 22 Jun 2024 22:27:10 +0900
+      Finished:     Sat, 22 Jun 2024 22:27:10 +0900
+    Ready:          False
+    Restart Count:  5
+  completed-container:
+    Command:
+      sh
+      -c
+      echo Hello, World!; sleep 5
+    State:          Terminated
+      Reason:       Completed
+      Exit Code:    0
+      Started:      Sat, 22 Jun 2024 22:33:46 +0900
+      Finished:     Sat, 22 Jun 2024 22:33:51 +0900
+    Restart Count:  0
+```
+![alt text](./images/pod-status-running.png)
+
+파드 목록을 조회하면 2개 컨테이너가 READY 상태이고 그 이후 1개의 컨테이너는 작업 완료 후 종료된 상태라 1개가 READY로 된걸 확인할 수 있습니다.
+
+실행한 결과에서 필요한 부분만 복사했습니다. 재시작 정책이 `OnFailure`라서 에러가 발생한 경우만 재실행됩니다.
+
+이 결과로 봤을 때 이 파드는 1개 이상의 컨테이너가 실행 중이므로 `Running` 상태이며 각 컨테이너는 다음과 같은 상태입니다.
+- Running
+- Waiting/Terminated: 계속 재실행
+- Terminated(Complted): 작업 완료 후 종료
+
+

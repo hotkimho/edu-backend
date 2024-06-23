@@ -1,3 +1,14 @@
+## 목차
+[1. 레플리카셋](#레플리카셋)  
+[2. 레플리카셋으로 생성된 파드의 레이블이 수정된다면?](#레플리카셋으로-생성된-파드의-레이블이-수정된다면)    
+[3. 오너 레퍼런스](#오너-레퍼런스) 
+[4. 데몬셋](#데몬셋)      
+[5. Tolerations 및 Taints](#tolerations-및-taints)    
+[6. 잡](#잡)  
+[7. 크론 잡](#크론-잡)  
+[8. 크론잡 히스토리](#크론잡-히스토리)
+
+
 ### 레플리카셋
 레플리카셋은 레플리카 파드 집합의 실행을 안정적으로 유지하는 것으로, 파드를 지속적으로 모니터링하여 파드 수가 의도하는 수와 일치하는치 확인하고 실행하는걸 보장합니다.
 특정 레이블의 키를 갖는 파드를 매칭시킬 수 있습니다. 결과적으로 레플리카의 목적은 `지정된 수의 파드가 항상 실행되도록 보장`하는 것입니다.
@@ -333,7 +344,7 @@ spec:
 
 
 ### 잡
-이전에 작성했던 레플리카셋, 데몬셋은 완료됐다는 속성없이 지속적인 태스크를 실행한다. 예를 들어 API서버의 경우 작업이 종료되는게 아닌 무한히 요청을 대기 한다.
+이전에 작성했던 레플리카셋, 데몬셋은 완료됐다는 속성없이 지속적인 태스크를 실행합니다.
 하지만 완료 가능한 태스크가 필요하며, 이런 태스크는 작업이 완료되면 소멸된다. 쿠버네티스는 이런 리소스를 잡을 통해 제공한다.
 
 잡은 파드의 `컨테이너 내부에서 실행 중인 프로세스가 완료되면 컨테이너를 다시 시작하지 않는 파드`를 실행할 수 있다. 프로세스가 완료되면 파드는 완료된 것으로 간주한다.
@@ -366,35 +377,72 @@ spec:
     - spec
       - restartPolicy
         - OnFailure값은 비정상적으로 종료되면 다시 시작하는 옵션이다
-        - Always(Deault) 정상적으로 종료 되었다고 해도 다시 시작하는 정책이다.
-        - Never 성공/실패 유무에 관계없이 재시작 하지 않는 정책이다.
+        - Never(Deault) 성공/실패 유무에 관계없이 재시작 하지 않는 정책이다.
+        - Always(허용되지 않음)
+
+잡에서 사용되는 필드 들을 알아보겠습니다.
+- complections
+  - 잡이 완료되기 위해 성공적으로 종료(작업 완료)되어야 하는 파드의 개수입니다.
+  - 기본값 1
+- parallelism
+  - 동시에 실행될 수 있는 파드의 수를 정의합니다.
+  - 기본값 1
+- activeDeadlineSeconds
+  - 잡이 생성된 후, 최대 실행 시간을 초 단위로 정의합니다. 이 시간이 지나면 모든 활성화된 파드는 종료되고 잡은 실패로 간주됩니다.
+  - 동시에 3개가 실행중일 때 1개라도 시간을 초과하면 모든 잡은 실패로 간주됩니다. 잡이 실패로 간주되면 다시 잡은 재시도 되지 않습니다.
+  - 설정하지 않으면 무제한
+- backoffLimit
+  - 파드가 실패한 후 다시 시도하는 횟수입니다.
+  - 파드가 실패할 때마다 새로운 파드를 생성하여 다시 시도합니다. 횟수를 초과하면 잡은 실패로 처리되어 잡은 재실행되지 않습니다.
+  - 파드는 10, 20, 40... 형식으로 지수적으로 증가하는 백오프 지연 시간이 적용되어 잡 컨트롤러에 의해 재성성됩니다.
+  - 기본값은 6입니다.
+- ttlSecondsAfterFinished
+  - 잡이 완료된 후, 삭제되기 전까지 유지되는 시간입니다.
 
 
-잡은 여러 번 동작하게 설정할 수 있고 병렬로도 실행이 가능하다.
-```
+잡은 일시 중지할 수 있습니다.
+잡 중지는 `spec.suspend` 필드를 True/False 값으로 업데이트하여 중지(True)할 수 있습니다.
+잡이 일시 중지하면, `completed` 상태가 아닌 실행중인 파드에 종료 시그널을 보내 종료하게됩니다. 
+```YAML
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: multi-completion-batch-job
+  name: sus-job
 spec:
-  completions: 5
-  parallelism: 2
   template:
-    metadata:
-      labels:
-        app: batch-job
     spec:
-      restartPolicy: OnFailure
       containers:
-      - name: main
-        image: luksa/batch-job
+      - name: example
+        image: busybox
+        command: ["sh", "-c", "echo Hello; sleep 60"]
+      restartPolicy: OnFailure
+```
+실제 잡을 실행하고 일시 중지 해보겠습니다.
+```
+# 잡 실행 직 후
+NAME      STATUS    COMPLETIONS   DURATION   AGE
+sus-job   Running   0/1           6s         6s
+
+# 잡 중지 직 후
+kubectl patch job sus-job -p '{"spec":{"suspend":true}}'
+NAME      STATUS      COMPLETIONS   DURATION   AGE
+sus-job   Suspended   0/1           20s        20s
+
+# 잡 재개 후 파드 조회
+NAME                   READY   STATUS        RESTARTS   AGE
+daemonset-test-6zzh7   1/1     Running       0          75m
+sus-job-9gs5s          1/1     Running       0          6s
+sus-job-zlx2w          0/1     Terminating   0          47s
 ```
 
-- spec
-  - completions
-    - 이 속성은 총 5번의 작업이 완료되어야 하고, `parallelism` 속성이 없으면 한 작업씩 순차적으로 이루어진다. 만약 중간에 실패하면 새 파드를 생성하여 작업을 계속한다. 즉 최소 5번 이상의 파드가 만들어진다.
-  - parallelism
-    - 이 속성은 병렬로 최대 n개의 파드가 생성되어 작업을 병렬로 처리한다는 의미이다. 이 옵션은 잡이 실행되는 동안 변경할 수 있으며 증가한 경우 바로 파드를 만들어 실해한다.
+처음에 잡에서 생성된 파드는 일시 중지일 때 종료되었고, 잡이 다시 재개되면서 파드를 생성한 걸 확인할 수 있습니다.
+
+```
+잡 관련된 상세 내용
+1. 잡은 완료되어도 파드가 삭제되지 않습니다. ttlSecondsAfterFinished 옵션을 적용하여 일정 시간이 지난 파드는 삭제로 처리할 수 있습니다.
+
+2. 잡으로 생성된 파드가 완료되지 않은 상태로 남아 있는 경우, 별다른 옵션을 할당하지 않는 한 파드는 무한히 생성되어 있습니다. activeDeadlineSeconds 옵션을 할당하여 일정 시간안에 완료되지 못한 파드가 있으면 강제로 잡을 실패로 만들어야 합니다. 이 경우 남아 있는 파드를 통해 원인을 분석할 수 있습니다.
+```
 
 ### 크론 잡
 주기적으로(지정된 간격) 반복 실행되는 작업을 리눅스에서 `크론(cron)` 이라고 한다. 크론 잡은 일정한 간격으로 잡을 실행한다.
@@ -404,33 +452,67 @@ ex)
 - 0,20,40 * * * * : 매일 매시간 0, 20, 40분에 실행
 - 45 5 * * 5 : 매 주 금요일 오전 5시 45분에 실행
 
-
 ```
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: batch-job-every-fifteen-minutes
+  name: test-cronjob
 spec:
-  schedule: "0,15,30,45 * * * *"
+  schedule: "*/5 * * * *"
+  successfulJobsHistoryLimit: 3  # 성공한 잡 히스토리 제한
+  failedJobsHistoryLimit: 1      # 실패한 잡 히스토리 제한
   jobTemplate:
     spec:
       template:
-        metadata:
-          labels:
-            app: periodic-batch-job
         spec:
-          restartPolicy: OnFailure
           containers:
-          - name: main
-            image: luksa/batch-job
+          - name: example
+            image: busybox
+            command: ["sh", "-c", "echo Hello World! && sleep 30"]
+          restartPolicy: OnFailure
 ```
-- spec
-  - schedule
-    - 0, 15, 30, 45 * * * * 설정은 매일 매시간 0, 15, 30, 45분에 실행한다는 의미이다.
+크론잡을 실행하면
+```
+Events:
+  Type    Reason            Age    From                Message
+  ----    ------            ----   ----                -------
+  Normal  SuccessfulCreate  7m19s  cronjob-controller  Created job test-cronjob-28652314
+  Normal  SawCompletedJob   6m44s  cronjob-controller  Saw completed job: test-cronjob-28652314, status: Complete
+  Normal  SuccessfulCreate  6m19s  cronjob-controller  Created job test-cronjob-28652315
+  Normal  SawCompletedJob   5m45s  cronjob-controller  Saw completed job: test-cronjob-28652315, status: Complete
+  Normal  SuccessfulCreate  5m19s  cronjob-controller  Created job test-cronjob-28652316
+  Normal  SawCompletedJob   4m44s  cronjob-controller  Saw completed job: test-cronjob-28652316, status: Complete
+  Normal  SuccessfulCreate  4m19s  cronjob-controller  Created job test-cronjob-28652317
+  Normal  SuccessfulDelete  3m44s  cronjob-controller  Deleted job test-cronjob-28652314
+  Normal  SawCompletedJob   3m44s  cronjob-controller  Saw completed job: test-cronjob-28652317, status: Complete
+  Normal  SuccessfulCreate  3m19s  cronjob-controller  Created job test-cronjob-28652318
+  Normal  SuccessfulDelete  2m44s  cronjob-controller  Deleted job test-cronjob-28652315
+  Normal  SawCompletedJob   2m44s  cronjob-controller  Saw completed job: test-cronjob-28652318, status: Complete
+  Normal  SuccessfulCreate  2m19s  cronjob-controller  Created job test-cronjob-28652319
+  Normal  SuccessfulDelete  104s   cronjob-controller  Deleted job test-cronjob-28652316
+  Normal  SawCompletedJob   104s   cronjob-controller  Saw completed job: test-cronjob-28652319, status: Complete
+  Normal  SuccessfulCreate  79s    cronjob-controller  Created job test-cronjob-28652320
+  Normal  SuccessfulDelete  45s    cronjob-controller  Deleted job test-cronjob-28652317
+  Normal  SawCompletedJob   45s    cronjob-controller  Saw completed job: test-cronjob-28652320, status: Complete
+  Normal  SuccessfulCreate  19s    cronjob-controller  Created job test-cronjob-28652321
+```
 
-이 크론잡은 15분 간격으로 잡 리소스르를 생성합니다.
+이 크론잡은 5분 간격으로 잡 리소스를 생성합니다.
+이벤트에 크론잡에 대한 기록이 계속 기록되어 확인할 수 있습니다.
 
 추가적으로 `startingDeadlineSeconds` 옵션을 할당할 수 있다. 이 옵션은 지정된 초 이내로 파드가 시작해야하는 옵션이다.
 
 주의할 점은 이 옵션이 굉장히 작은 시간(10초 미만)으로 설정되어 있으면 크론잡이 스케줄 되지 않을 수 있다.
-크론잡 컨트롤러는 10초마다 마지막 부터 현재까지 얼마나 많은 크론잡이 누락되었는지 확인한다. 만약 일정 수 이상의 일정이 누락되면 잡을 실행하지 않고 에어 로그를 남긴다. 
+크론잡 컨트롤러는 10초마다 마지막 부터 현재까지 얼마나 많은 크론잡이 누락되었는지 확인한다. 만약 일정 수 이상(100개)의 일정이 누락되면 잡을 실행하지 않고 로그를 남긴다. 크론잡은 실패합니다.
+
+### 크론잡 히스토리
+일반적으로 잡의 경우 작업이 완료되면 만들어진 파드가 삭제되지 않습니다. 크론잡의 경우 굉장히 많은 수의 작업이 이루지면 파드수가 굉장히 많아 질 수 있습니다. 이 문제는 잡 히스토리 옵션을 사용하여 문제를 해결할 수 있습니다.
+
+위의 매니페스트 파일에 다음과 같은 옵션이 있습니다.
+- spec
+  - successfulJobsHistoryLimit: 디폴트(3)
+    - 성공한 잡의 개수를 3개로 제한합니다. 만약 4번 째 잡이 완료되면 가장 오래된 잡을 삭제하여 최근 3개의 잡에 대한 기록을 유지합니다.
+  - failedJobsHistoryLimit: 디폴트(1)
+    - 실패한 잡의 개수를 1개로 제한합니다. 만약 2번 째 잡이 완료되면 가장 오래된 잡을 삭제하여 최근 1개의 잡에 대한 기록을 유지합니다.
+
+이렇게 무수히 많은 잡에 대한 기록이 생길 수 있지란 이런 옵션을 사용하여 문제를 방지하고 문제가 발생한 경우 추적할 수 있는 기록을 남겨놓습니다.

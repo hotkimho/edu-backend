@@ -1562,3 +1562,234 @@ status:
   - 파드 내 하나 이상의 컨테이너가 준비되지 않았으므로 False로 표시됩니다.
 - PodScheduled
   - 파드가 노드에 성공적으로 배치되었으므로 True로 표시됩니다.
+
+### 디플로이먼트 배포하고 다양한 방식으로 조회
+예제 디플로이먼트 매니페스트 
+```YAML
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+  labels:
+    app: nginx
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.14.2
+        ports:
+        - containerPort: 80
+```
+
+
+1. 디플로이먼트 JSON형식으로 출력
+```
+kubectl get deploy -o json
+```
+
+```JSON
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "metadata": {
+                "annotations": {
+                    "deployment.kubernetes.io/revision": "1"
+                },
+                "creationTimestamp": "2024-06-23T16:43:14Z",
+                "generation": 1,
+                "labels": {
+                    "app": "nginx"
+                },
+                "name": "nginx-deployment",
+                "namespace": "default",
+                "resourceVersion": "92266",
+                "uid": "6006ce4b-e339-432e-8fa0-1137c3cace39"
+            },
+            "spec": {
+                "progressDeadlineSeconds": 600,
+                "replicas": 3,
+                "revisionHistoryLimit": 10,
+                "selector": {
+                    "matchLabels": {
+                        "app": "nginx"
+                    }
+                },
+                "strategy": {
+                    "rollingUpdate": {
+                        "maxSurge": "25%",
+                        "maxUnavailable": "25%"
+                    },
+                    "type": "RollingUpdate"
+                },
+                "template": {
+                    "metadata": {
+                        "creationTimestamp": null,
+                        "labels": {
+                            "app": "nginx"
+                        }
+                    },
+                    "spec": {
+                        "containers": [
+                            {
+                                "image": "nginx:1.14.2",
+                                "imagePullPolicy": "IfNotPresent",
+                                "name": "nginx",
+                                "ports": [
+                                    {
+                                        "containerPort": 80,
+                                        "protocol": "TCP"
+                                    }
+                                ],
+                                "resources": {},
+                                "terminationMessagePath": "/dev/termination-log",
+                                "terminationMessagePolicy": "File"
+                            }
+                        ],
+                        "dnsPolicy": "ClusterFirst",
+                        "restartPolicy": "Always",
+                        "schedulerName": "default-scheduler",
+                        "securityContext": {},
+                        "terminationGracePeriodSeconds": 30
+                    }
+                }
+            },
+            "status": {
+                "availableReplicas": 3,
+                "conditions": [
+                    {
+                        "lastTransitionTime": "2024-06-23T16:43:28Z",
+                        "lastUpdateTime": "2024-06-23T16:43:28Z",
+                        "message": "Deployment has minimum availability.",
+                        "reason": "MinimumReplicasAvailable",
+                        "status": "True",
+                        "type": "Available"
+                    },
+                    {
+                        "lastTransitionTime": "2024-06-23T16:43:14Z",
+                        "lastUpdateTime": "2024-06-23T16:43:28Z",
+                        "message": "ReplicaSet \"nginx-deployment-77d8468669\" has successfully progressed.",
+                        "reason": "NewReplicaSetAvailable",
+                        "status": "True",
+                        "type": "Progressing"
+                    }
+                ],
+                "observedGeneration": 1,
+                "readyReplicas": 3,
+                "replicas": 3,
+                "updatedReplicas": 3
+            }
+        }
+    ],
+    "kind": "List",
+    "metadata": {
+        "resourceVersion": ""
+    }
+}
+```
+조회된 결과
+
+2. 디플로이먼트 image 필드 출력
+```
+# kubectl get deployment nginx-deployment -o jsonpath='{.spec.template.spec.containers[*].image}'
+nginx:1.14.2
+```
+
+- spec
+  - template
+    - spec
+      - containers[]
+        - image: 이미지 값을 조회합니다.
+
+
+3. app 라벨 셀렉터를 이용한 파드 목록 조회
+```
+kubectl.exe get deployment -l app=nginx
+
+# 결과
+NAME               READY   UP-TO-DATE   AVAILABLE   AGE
+nginx-deployment   3/3     3            3           6m48s
+```
+`-l` 옵션을 사용하여 `app:nginx`인 레이블 가진 deployment 조회
+
+
+4. 디플로이먼트 kubectl 조회 시 라벨 목록 포함 조회
+```
+kubectl.exe get deployment --show-labels
+
+# 결과
+NAME               READY   UP-TO-DATE   AVAILABLE   AGE    LABELS
+nginx-deployment   3/3     3            3           8m1s   app=nginx
+```
+`--show-labels` 옵션을 사용하여 레이블 목록 포함하여 조회합니다.
+
+
+5. 동일한 결과 출력
+```
+PodName                             PodUID                                 Image
+nginx-deployment-7fb96c846b-g6pms   b11b5344-caf0-4993-b13a-52ede4111bec   nginx:1.14.2
+nginx-deployment-7fb96c846b-jz7dg   a97e6512-7e06-4d34-9d58-f496f08a131d   nginx:1.14.2
+nginx-deployment-7fb96c846b-xnrk9   9dc294e7-fac5-4721-b63e-efd4e761bb8e   nginx:1.14.2
+```
+
+```
+kubectl.exe get pods -l app=nginx -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.uid}{"\t"}{.spec.containers[*].image}{"\n"}{end}'
+
+# 결과
+nginx-deployment-77d8468669-2n7xd       b5e053f4-32a6-4227-ae6f-d3d31cfc0ba5    nginx:1.14.2
+nginx-deployment-77d8468669-bz8sd       c1096e7b-8431-4d5e-97a8-5611db204eb0    nginx:1.14.2
+nginx-deployment-77d8468669-g9rmv       b3b62e48-2eda-473a-b5a1-5ace1d588418    nginx:1.14.2
+```
+
+```
+kubectl get deploy -l app=nginx -o json
+```
+명령어를 실행하면
+
+```JSON
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "kind": "Pod",
+            "metadata": {
+                "labels": {
+                    "app": "nginx",
+                    "pod-template-hash": "77d8468669"
+                },
+                "name": "nginx-deployment-77d8468669-bz8sd",
+                "namespace": "default",
+                "uid": "c1096e7b-8431-4d5e-97a8-5611db204eb0"
+            },
+            "spec": {
+                "containers": [
+                    {
+                        "image": "nginx:1.14.2",
+                    }
+                ],
+            }
+        }
+    ]
+}
+```
+
+파드중 1개에 대한 정보입니다.
+- items[]
+  - metadta
+    - name
+    - uid
+  - spec
+    - containers[]
+      - image
+
+값을 가져옵니다.

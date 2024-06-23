@@ -186,10 +186,16 @@ metadata:
 deployment를 상위 리소스를 가지며, 레플리카셋으로 실행되는걸 오너레퍼런스를 통해 확인할 수 있습니다.
 
 ### 데몬셋
-레플리카셋은 노드의 몇 개의 파드가 배치될지 정할 수 없다. 이는 스케줄러에의해 할당된다. 하지만 각각의 노드에서 1개씩 지정된 파드를 실행하려면 어떻게 해야할가?(kube-proxy 모든 노드에 1개씩 있는 느낌)
-각각의 노드에서 1개씩 파드를 실행하려면 데몬셋 오브젝트를 생성해야 한다.
-생성된 파드는 타겟 노드가 지정되어 있고 스케줄링 기능을 사용하지 않으면 이런 요구 사항을 만족할 수 있다.
-데몬셋은 레플리카셋과 다르게 `원하는 파드의 수` 개념이 없다. 파드 셀렉터와 일치하는 파드가 노드에서 실행 중인지 확인하는 것이기 때문에, 복제본 개념이 필요 없다. 그리고 노드가 다운됐다고 해서 다른 노드에 파드를 생성하지 않는다. 대신 새 노드가 추가된 경우 생성된 노드에 파드를 할당한다.
+레플리카셋은 노드의 몇 개의 파드가 배치될지 정할 수 없습니다. 이는 스케줄러에의해 할당됩니다. 하지만 각각의 노드에서 1개씩 지정된 파드를 실행하려면 어떻게 해야 할까요?
+
+노드에서 1개씩 파드를 실행하려면 데몬셋 오브젝트를 생성해야 합니다.
+데몬셋은 레플리카셋과 다르게 `원하는 파드의 수` 개념이 없습니다. 파드 셀렉터와 일치하는 파드가 노드에서 실행 중인지 확인하는 것이기 때문에, 2개 이상 파드를 실행하지 않습니다. 데몬셋은 새 노드가 추가된 경우 생성된 노드에 파드를 할당합니다.
+
+데몬셋을 활용한 용도는 다음과 같습니다.
+- 스토리지 데몬 실행
+- 로그 수집 데몬 실행
+- 노드 모니터링 데몬 실행
+
 
 ```
 apiVersion: apps/v1
@@ -235,6 +241,96 @@ kubectl label node hkim-host-node disk=ssd
 
 ![alt text](./images/after-daemonset.png)
 데몬셋을 생성하고 데몬셋의 노드 셀렉터에 만족하는 레이블을 노드에 추가하니 데몬셋에 의해 파드가 생성되었다.
+
+데몬셋은 노드에서 1개만 실행되는 걸 보장합니다. 그럼 실제 쿠버네티스에서 데몬셋은 어떻게 사용중인지 확인해봅니다.
+
+```YAML
+# kube-proxy
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  annotations:
+  creationTimestamp: "2024-06-10T11:12:55Z"
+  labels:
+    k8s-app: kube-proxy
+  name: kube-proxy
+  namespace: kube-system
+```
+kube-proxy를 조회해보면 데몬셋으로 되어있는걸 확인할 수 있습니다.
+
+### Tolerations 및 Taints
+테인트는 특정 조건이 있는 노드에 파드가 스케줄링되지 않도록 하는 기능입니다.
+
+톨러레이션은 파드가 특정 테인트를 무시하고 노드에 스케줄링될 수 있도록 허용하는 기능입니다.
+
+톨러레이션은 테인트(taint)와 함께 작동하여 파드가 적절한 노드에 스케줄링 되도록 보장합니다.
+
+테인트는 특정 조건이 있는 노드에 파드가 스케줄링되지 않도록 설정하는 기능이라고 했습니다. 노드에 테인트를 추가하면 톨러레이션이 없는 파드는 그 노드에 스케줄링되지 않습니다.
+
+테인트는 다음과 같이 구성됩니다.
+- key
+  - taint 이름입니다.
+- value
+  - taint 값입니다.
+- effect
+  - 테인트가 적용되는 방식입니다. 세 가지 유형이 있습니다.
+    - NoSchedule: 해당 테인트가 있는 노드에 파드를 스케줄링하지 않습니다.
+    - PreferNoSchedule: 가능하면 해당 테인트가 있는 노드에 파드를 스케줄링하지 않습니다.
+    - NoExecute: 기존에 실행 중인 파드도 퇴출시키며, 새로운 파드를 스케줄링하지 않습니다.
+
+톨러레이션은 다음과 같이 구성됩니다.
+- key
+  - 톨러레이션 이름입니다.
+- operator
+  - Exists, Equal 값이 있습니다.
+  - Exists: 키가 존재하기만 하면 톨러레이션을 적용합니다.
+  - Equal: 키와 값이 정확하게 일치해야 톨러레이션을 적용합니다.
+- value
+  - 톨러레이션 값입니다.
+- effect
+  - 적용될 테인트와 일치해야 합니다. 값이 다르면 적용되지 않습니다.
+- tolerationSeconds(option)
+  - 테인트의 `effect:NoExecute`인 경우 적용되며, 파드가 노드에서 얼마나 생존할 시간을 나타냅니다.
+  - 3600 값으로 설정된 경우, 해당 파드는 1시간 후 노드에서 축출됩니다.
+
+마스터노드에 테인트를 추가하여 파드를 배치할 수 없게 만들고 마스터노드에 데몬셋을 통해 파드를 배치해보겠습니다.
+
+```
+kubectl taint nodes hkim-host-master node-role.kubernetes.io/master:NoSchedule
+```
+
+```YAML
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: daemonset-test
+spec:
+  selector:
+    matchLabels:
+      name: kimho
+  template:
+    metadata:
+      labels:
+        name: kimho
+    spec:
+      tolerations:
+      - key: "node-role.kubernetes.io/master"
+        operator: "Exists"
+        effect: "NoSchedule"
+      containers:
+      - name: nginx
+        image: nginx
+```
+- spec
+  - key: node-role.kubernetes.io/master 이 키를 가진 테인트에 대해 적용합니다.
+  - operator: Exists 해당 키가 존재하면 톨러레이션이 적용됩니다.
+  - effect: NoSchedule가 적용된 테인트(파드가 스케줄링되지 않는 노드)를 무시하고 노드에 파드가 스케줄링 될 수 있습니다.
+
+실행된 결과를 보면
+![alt text](./images/daemonset-tolerations.png)
+다른 노드들은 워커노드에 파드가 배치되었지만, 방금 생성한 데몬셋으로 생성된 파드는 마스터 노드에 배치된 걸 알 수 있습니다.
+
+
 
 ### 잡
 이전에 작성했던 레플리카셋, 데몬셋은 완료됐다는 속성없이 지속적인 태스크를 실행한다. 예를 들어 API서버의 경우 작업이 종료되는게 아닌 무한히 요청을 대기 한다.

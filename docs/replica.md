@@ -53,7 +53,8 @@ spec:
   - selector
     - matchLabels
       - app:kubia 레이블을 가진 파드에 대해서만 관리합니다.
-`spec.template` : 실제 파드에서 실행될 컨테이너이며, 추가/삭제될 파드에 대한 템플릿이다.
+`spec.template` : 파드가 새로 생성될 때, 새로 생성될 파드의 스펙입니다.
+
 
 실제 이 YAML 파일로 레플리카 셋을 만들면 다음과 같이 파드가 만들어집니다.
 ![image](./images/create-replicaset.png)

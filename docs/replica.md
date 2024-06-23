@@ -160,6 +160,31 @@ metadata:
 
 그리고 테스트 결과 `label이 변경되어 레플리카셋에 의해 관리가 되지 않는 파드는 메타데이터에서 오너 레퍼런스가 삭제되고, label이 변경되어 레플리카셋에 의해 관리가 되면 메타데이터에 오너 레퍼런스가 생성`됩니다.
 
+실제 쿠버네티스 시스템에서 사용중인 레플리카셋을 조회해보겠습니다.
+```
+# 조회 명령어
+kubectl get replicasets -n kube-system
+kubectl describe replicaset <rsplicaset-Name> -n kube-system
+```
+```YAML
+# kubectl get
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  labels:
+    k8s-app: kube-dns
+  name: coredns-75ddfb5f98
+  namespace: kube-system
+  ownerReferences:
+  - apiVersion: apps/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: Deployment
+    name: coredns
+    uid: 67f4e8f5-0931-497a-89ab-9a8a1dc11fad
+```
+deployment를 상위 리소스를 가지며, 레플리카셋으로 실행되는걸 오너레퍼런스를 통해 확인할 수 있습니다.
+
 ### 데몬셋
 레플리카셋은 노드의 몇 개의 파드가 배치될지 정할 수 없다. 이는 스케줄러에의해 할당된다. 하지만 각각의 노드에서 1개씩 지정된 파드를 실행하려면 어떻게 해야할가?(kube-proxy 모든 노드에 1개씩 있는 느낌)
 각각의 노드에서 1개씩 파드를 실행하려면 데몬셋 오브젝트를 생성해야 한다.

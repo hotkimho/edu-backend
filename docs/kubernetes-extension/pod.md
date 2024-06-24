@@ -219,7 +219,7 @@ spec:
     command: ["sh", "-c", "echo Hello, World!; sleep 5"]
     
 ```
-3개의 컨테이너가 시작됩니다. 1개는 정상, 1개는 실패, 1개는 정상적으로 작업을 완료하는 3개의 컨테이너 입니다.
+3개의 컨테이너가 시작됩니다. 1개는 정상, 1개는 실패, 1개는 정상적으로 작업을 완료 후 재시작 하는 3개의 컨테이너 입니다.
 ```YAML
 Name:             pod-status
 Namespace:        default
@@ -260,9 +260,23 @@ Containers:
 ```
 ![alt text](./images/pod-status-running.png)
 
-파드 목록을 조회하면 2개 컨테이너가 READY 상태이고 그 이후 1개의 컨테이너는 작업 완료 후 종료된 상태라 1개가 READY로 된걸 확인할 수 있습니다.
+```
+pod-status                                         0/3     ContainerCreating   0             3s
+pod-status                                         2/3     Error               0             7s
+pod-status                                         2/3     Error               1 (5s ago)    10s
+pod-status                                         2/3     CrashLoopBackOff    1 (2s ago)    11s
+pod-status                                         2/3     Error               2 (18s ago)   27s
+pod-status                                         1/3     NotReady            2 (11s ago)   38s
+pod-status                                         2/3     CrashLoopBackOff    3 (3s ago)    40s
+pod-status                                         2/3     Error               4 (17s ago)   54s
+pod-status                                         2/3     CrashLoopBackOff    4 (13s ago)   66s
+pod-status                                         1/3     NotReady            4 (17s ago)   70s
+pod-status                                         1/3     CrashLoopBackOff    4 (13s ago)   82s
+pod-status                                         2/3     CrashLoopBackOff    5 (15s ago)   84s
 
-실행한 결과에서 필요한 부분만 복사했습니다. 재시작 정책이 `OnFailure`라서 에러가 발생한 경우만 재실행됩니다.
+해당 파드는 1개가 정상적 실행, 1개 실패, 1개는 정상 종료 후 재실행 상태를 가지고 있습니다.
+1개는 기본적으로 실행하고 있지만, `completed-container`가 재실행 하며 실행 상태일 때 Ready가 2/3으로 표시됩니다.
+```
 
 이 결과로 봤을 때 이 파드는 1개 이상의 컨테이너가 실행 중이므로 `Running` 상태이며 파드내에 각 컨테이너는 다음과 같은 상태입니다.
 - running-container
@@ -270,7 +284,7 @@ Containers:
 - failed-container
   - Waiting/Terminated 상태이며, 컨테이너가 재실행 중 입니다.
 - completed-container
-  - Terminated(Complted): 작업 완료 후 종료되었습니다.
+  - Terminated(Complted): 작업 완료 후 재시작됩니다.
 
 하지만 이 파드는 Running 상태를 가지지만 정상적이라고 보기 힘듭니다.
 이런 문제가 있는 파드를 감지하기 위해선 다음과 같은 단계를 추가해야합니다.

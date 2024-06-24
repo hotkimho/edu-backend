@@ -54,35 +54,71 @@
 
 ### emptyDir
 가장 간단한 볼륨 유형으로, 파드가 노드에 할당될 때 처음 생성됩니다. 파드가 실행 중일 때만 존재하며 처음 비어있는 상태로 생성됩니다.
-파드내의 모든 컨테이너는 마운트하여 사용하여 사용할 수 있지만, 파드가 종료되면 해당 볼륨은 영구히 삭제됩니다.
+파드내의 모든 컨테이너는 마운트하여 사용하여 사용할 수 있지만, 파드가 제거되면 해당 볼륨은 영구히 삭제됩니다.
 동일 파드에서 컨테이너 간 파일을 공유할 떄 사용됩니다.
 
 ```
 apiVersion: v1
 kind: Pod
 metadata:
-  name: test-pd
+  name: fortune
 spec:
   containers:
-  - image: registry.k8s.io/test-webserver
-    name: test-container
+  - image: luksa/fortune
+    name: html-generator
     volumeMounts:
-    - mountPath: /cache
-      name: cache-volume
-  volumes:
-  - name: cache-volume
-    emptyDir:
-      sizeLimit: 500Mi
+    - name: html
+      mountPath: /var/htdocs        # 컨테이너의 /var/htdocs에 html이름의 볼륨을 마운트
+  - image: nginx:alpine
+    name: web-server
+    volumeMounts:
+    - name: html
+      mountPath: /usr/share/nginx/html  # 컨테이너의 해당위치에 html이름의 볼륨을 마운트
+      readOnly: true
+    ports:
+    - containerPort: 80
+      protocol: TCP
+  volumes: 
+  - name: html        # html이란 단일 emptyDir 볼륨을 생성
+    emptyDir: {}
 ```
-매니페스트 파일을 보면 컨테이너의 /cache 디렉토리를 마운트하여 사용하고, 볼륨의 용량은 500MiB 크기이다.
+볼륨을 사용할 땐 `.spec.volumes에 파드에 제공할 볼륨`을 지정합니다.
+
+그리고 `.spec.containers[].volumeMounts`에서 컨테이너에 해당 볼륨을 마운트할 위치를 선언합니다.
+
+해당 파드는 실행될 때 `emptyDir` 일시적인 볼륨이 생성됩니다. 그리고 각각의 컨테이너에서 마운트합니다.
+- html-generator
+  - /var/htdocs 경로에 마운트
+- web-server
+  - /usr/share/nginx/html 경로에 마운트
+
+emptyDir 볼륨을 통해 컨테이너는 파일 시스템을 공유합니다. 그러므로 한 컨테이너에서 파일을 생성하면 다른 컨테이너에서 해당 파일을 사용할 수 있습니다.
 
 ```
-volumes:
-  - name: cache-volume
-    emptyDir:
-      sizeLimit: 500Mi
+# 각각의 컨테이너에 접속합니다.
+kubectl exec -it <pod-name> -c <container-name> -- /bin/sh
 ```
-를 사용해서 디스크가 아닌 메모리를 사용하고 변경할 수 있다.
+
+![alt text](./images/emptydir-html.png)
+
+`html-generator` 컨테이너 `/var/htdocs` 경로에 파일을 생성했습니다.
+
+![alt text](./images/emptydir-nginx.png)
+
+`web-server` 컨테이너에서 파일이 생성된 걸 확인할 수 있습니다.
+
+emptyDir 볼륨은 파드가 노드에 할당될 때 처음 생성되며, 노드에서 파드가 실행되는 동안에만 존재합니다. 노드에서 파드가 제거되면 emptyDir의 데이터는 영구히 삭제됩니다.
+
+emptyDir의 필드 옵션들을 더 자세히 알아봅니다.
+
+- .spec.volumes.emptyDir
+  - medium
+    - `Memory` 값으로 설정하면 메모리(RAM) 기반 파일 시스템을 사용할 수 있습니다. 이 메모리는 컨테이너 리소스의 제한에 포함됩니다.
+    - 이 필드를 명시하지 않으면 디스크 기반으로 사용됩니다.
+  - sizeLimit
+    - 볼륨의 용량을 제한할 수 있습니다. ex) 1Gi
+    - 이 필드를 명시하지 않으면 용량을 무제한으로 사용합니다.
+
 
 ### hostPath
 hostPath은 파드를 호스트하는 노드의 파일시스템 파일이나 디렉토리를 가리킨다.

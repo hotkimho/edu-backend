@@ -737,7 +737,7 @@ spec:
 ![alt text](./images/init-container-get-describe-never.png)
 
 초기화 컨테이너가 실행되고 바로 종료(비정상 종료)됩니다. `Never` 옵션이므로, 의도치 않게 종료되어도 다시 실행되지 않습니다.
-파드를 조회하면 당연히 초기화 컨테이너가 비정상 종료된걸 확인할 수 있습니다. `restartPolicy: Never`이므로 시간이 지나도 파드는 재할당 되지 않습니다.
+파드를 조회하면 당연히 초기화 컨테이너가 비정상 종료된걸 확인할 수 있습니다. `restartPolicy: Never`이므로 시간이 지나도 파드는 재시작 되지 않습니다.
 
 `kubectl describe pod pod example-pod` 명령어로 상세조회 해보면 초기화 컨테이너에서 종료코드 1로 강제종료가 된걸 확인할 수 있습니다. 그리고 `Reason` 필드를 통해 어떤 이유로 종료 되었는지도 확인할 수 있었습니다.
 

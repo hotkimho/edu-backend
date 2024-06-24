@@ -264,10 +264,19 @@ Containers:
 
 실행한 결과에서 필요한 부분만 복사했습니다. 재시작 정책이 `OnFailure`라서 에러가 발생한 경우만 재실행됩니다.
 
-이 결과로 봤을 때 이 파드는 1개 이상의 컨테이너가 실행 중이므로 `Running` 상태이며 각 컨테이너는 다음과 같은 상태입니다.
-- Running
-- Waiting/Terminated: 계속 재실행
-- Terminated(Complted): 작업 완료 후 종료
+이 결과로 봤을 때 이 파드는 1개 이상의 컨테이너가 실행 중이므로 `Running` 상태이며 파드내에 각 컨테이너는 다음과 같은 상태입니다.
+- running-container
+  - Running 상태이며, 정상적으로 동작하고 있습니다.
+- failed-container
+  - Waiting/Terminated 상태이며, 컨테이너가 재실행 중 입니다.
+- completed-container
+  - Terminated(Complted): 작업 완료 후 종료되었습니다.
+
+하지만 이 파드는 Running 상태를 가지지만 정상적이라고 보기 힘듭니다.
+이런 문제가 있는 파드를 감지하기 위해선 다음과 같은 단계를 추가해야합니다.
+1. 라이브니스 프로브 사용
+2. 재시작 정책
+3. 모니터링 및 알림 도구 사용
 
 
 Pending, Failed 상태를 가지는 파드를 만들고 결과를 확인합니다.

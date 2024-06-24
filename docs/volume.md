@@ -479,23 +479,31 @@ PVC Status
 
 ### 동적 프로비저닝
 퍼시스턴트 볼륨과 퍼시스턴트 볼륨 클레임을 통해 개발자가 내부적으로 별도의 과정없이 스토리지를 사용할 수 있는지 확인했습니다.
+
 하지만 클러스터 관리자 입장에선 실제 스토리지를 pv에 바인딩을 미리 해놔야 합니다. 쿠버네티스는 동적 프로비저닝을 통해 이 작업을 자동으로 수행합니다.
 
 클러스터 관리자는 pv을 직접 생성하는 대신 `퍼시스턴트볼륨 프로비저너`를 배포하고, 사용자가 선택 가능한 퍼시스턴트볼륨의 타입을 하나 이상의 `스토리지클래스` 오브젝트로 정의할 수 있습니다. 사용자가 pvc로 스토리지클래스를 참조하면 프로비저너가 스토리지를 프로비저닝 하는 방식으로 처리합니다.
 
 ![alt text](./images/dynamic-pv.png)
-그림을 보면 좀 더 이해하기 쉽다. 여기서 PV를 얻는 방법은 다음과 같다.
+그림을 보면 좀 더 이해하기 수월합니다. 여기서 PV를 얻는 방법은 다음과 같습니다.
 1. 퍼시스턴트볼륨 프로비저너, 스토리지 클래스 정의
-스토리지 클래스는 AWS EBS, GCE Persistent Disk 같은 클라우드 공급자의 서비스나 오픈소스 스토리지 솔루션인 Ceph, NFS 등을 사용하여 동적 프로비저닝됩니다.
+
+스토리지 클래스는 AWS EBS, GCE Persistent Disk 같은 클라우드 공급자의 서비스나 오픈소스 스토리지 솔루션인 NFS 등을 사용하여 동적 프로비저닝됩니다.
+
 2. pvc 정의
+   
 pvc는 `필요한 스토리지 크기`와 `접근 모드`를 지정하고 사용할 스토리지 클래스틑 참조합니다.
+
 클러스터에 `기본 스토리지 클래스`가 정의되어 있는 경우 사용할 스토리지 클래스를 지정하지 않으면 자동으로 기본 스토리지 클래스를 참조합니다.
+
 3. 파드 생성 및 pvc 요청
+
 파드 yaml 매니페스트에 명시된 pvc를 요청합니다.
+
 pvc에 명시된 스토리지 클래스가 `프로비지너`를 호출하여 PV를 동적으로 할당합니다.
 
 
-__필요한 패키지는 설치가 되어있다고 가정합니다__
+__필요한 패키지는 설치가 되어있다고 가정합니다(실제 환경에서 동작되지는 않았습니다.)__
 
 
 1. 스토리지 클래스 생성
@@ -504,19 +512,20 @@ apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: nfs-storage
-provisioner: kimho.com/nfs-provisioner
+provisioner: nfs-subdir-external-provisioner
 parameters:
-  path: /srv/nfs/k8s
-  server: nfs-server.kimho.com
+  path: /var/nfs
+  server: 192.168.49.2
 ```
-`provisioner` 의 값은 실제 `aws-ebs`, `gce-pd`같은 서비스에서 제공하는 프로비지너 플러그인이다.
+
+`provisioner` 의 값은 실제 `aws-ebs`, `gce-pd`같은 서비스에서 제공하는 프로비지너 플러그인입니다.
 
 1. pvc 생성
 ```
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: nfs-pvc
+  name: dy-nfs-pvc
 spec:
   accessModes:
     - ReadWriteMany
@@ -525,7 +534,7 @@ spec:
       storage: 10Gi
   storageClassName: nfs-storage
 ```
-접근 모드는 `ReadWriteMany`, `10Gib`, 위에서 정의한 스토리지 클래스 `nfs-storage`를 참조한다.
+접근 모드는 `ReadWriteMany`, `10Gib`, 위에서 정의한 스토리지 클래스 `nfs-storage`를 참조합니다.
 
 1. pvc 요청 파드
 ```
@@ -543,8 +552,9 @@ spec:
   volumes:
   - name: nfs-volume
     persistentVolumeClaim:
-      claimName: nfs-pvc
+      claimName: dy-nfs-pvc
 ```
-이 파드가 생성될 때 `persistentVolumeClaim: claimName: nfs-pvc` 설정에 의해 nfs-pvc 이름을 가진 pvc를 요청합니다.
+이 파드가 생성될 때 `persistentVolumeClaim: claimName: dy-nfs-pvc` 설정에 의해 nfs-pvc 이름을 가진 pvc를 요청합니다.
 
 pvc 요청이 오면 nfs-storage 클래스를 참조하여 실제 pv가 생성 및 할당이 됩니다.
+

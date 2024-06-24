@@ -121,9 +121,153 @@ emptyDir의 필드 옵션들을 더 자세히 알아봅니다.
 
 
 ### hostPath
-hostPath은 파드를 호스트하는 노드의 파일시스템 파일이나 디렉토리를 가리킨다.
-파드가 삭제되면 볼륨이 사라지는 emptyDir과 달리 파드가 종료되어도 볼륨이 살아있어 데이터가 유지된다.
-파드가 스케줄링되어 다른 노드에 저장되면 문제가 발생할 수 있으므로, 파드에 의존하여 사용하면 안된다.
+hostPath 볼륨은 노드의 파일 시스템에 있는 파일이나 디렉토리를 파드에 마운트합니다. 파드가 종료되면 데이터가 사라지는 emptyDir과는 다르게 파드가 종료되어도 `hostPath` 볼륨의 데이터는 유지됩니다.
+
+하지만 파드가 다른 노드에 스케줄링 될 수 있으므로, 사용하는 파드는 노드에 의존적으로 사용하면 안됩니다.
+
+```YAML
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hostpath-pod
+spec:
+  containers:
+  - image: luksa/fortune
+    name: html-generator
+    volumeMounts:
+    - name: html
+      mountPath: /var/htdocs       
+  - image: nginx:alpine
+    name: web-server
+    volumeMounts:
+    - name: html
+      mountPath: /usr/share/nginx/html 
+      readOnly: true
+    ports:
+    - containerPort: 80
+      protocol: TCP
+  volumes:
+  - name: html  
+    hostPath:
+      path: /mnt/data
+      type: DirectoryOrCreate
+```
+hostPath는 `.spec.volumes.hostPath.type` 필드를 사용하여 마운트할 경로의 유형을 지정합니다.
+
+- .spec.volumes.hostPath.type
+  - DirectoryOrCreate: 지정한 경로가 존재하지 않으면 빈 디렉토리를 생성합니다. (권한은 0755)
+  - Directory: 지정한 경로가 반드시 디렉토리여야 합니다. 경로가 없으면 파드는 실패합니다.
+  - FileOrCreate: 지정한 경로가 없으면 빈 파일을 생성합니다. (권한은 0644)
+  - File: 지정한 경로가 반드시 파일이어야 합니다. 경로가 없으면 파드는 실패합니다.
+  - 빈값(default): 아무런 검사를 수행하지 않습니다.
+
+다음과 같이 결과를 확인해보겠습니다.
+1. html-generator 컨테이너 /var/htdocs 디렉토리에 파일 생성
+2. web-server 컨테이너 /usr/share/nginx/html 디렉토리에서 파일 확인
+3. 노드 /mnt/data 디렉토리에서 파일 확인 
+
+![alt text](./images/hostpath-container-1.png)
+
+html-generator 컨테이너에서 파일을 생성합니다.
+
+![alt text](./images/hostpath-container-2.png)
+
+web-server 컨테이너에서 생성된 파일을 확인합니다.
+
+```
+# minukube를 사용했습니다.
+minikube ssh
+cd /mnt/data
+pwd
+ls
+```
+![alt text](./images/hostpath-node.png)
+
+노드에 접속하여 `/mnt/data` 디렉토리를 확인합니다.
+
+실제 노드의 파일시스템에 파일이 생성된 걸 확인할 수 있습니다.
+
+hostPath는 노드의 파일 시스템을 마운트하여 노드 내의 모든 파드에서 접근할 수 있습니다. 보안 위험이 있을 수 있으며 가능하면 사용을 자제하되, 사용하는 경우 파일 또는 디렉토리만 범위를 지정하여 ReadOnly로 마운트 해야합니다.
+
+한번 일부로 마운트를 실패하여 파드가 어떻게 동작되는지 확인해보겠습니다.
+
+```YAML
+  volumes:
+  - name: html  
+    hostPath:
+      path: /hostpath/test
+      type: Directory
+```
+`.spec.volumes.hostPath.type` 옵션을 존재하지 않는 Directory로 할당해보겠습니다.
+
+```
+# kubectl get pod
+NAME                                READY   STATUS              RESTARTS      AGE
+hostpath-pod                        0/2     ContainerCreating   0             3m15s
+```
+해당 파드는 시간이 지나도 계속 `ContainerCreating` 상태로 있습니다.
+
+```
+# kubectl describe pod <pod name>
+Name:             hostpath-pod
+Namespace:        default
+Status:           Pending
+Containers:
+  html-generator:
+    State:          Waiting
+      Reason:       ContainerCreating
+    Ready:          False
+    Mounts:
+      /var/htdocs from html (rw)
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-kl7pt (ro)
+  web-server:
+    Port:           80/TCP
+    Host Port:      0/TCP
+    State:          Waiting
+      Reason:       ContainerCreating
+    Ready:          False
+    Mounts:
+      /usr/share/nginx/html from html (ro)
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access-kl7pt (ro)
+Conditions:
+  Type                        Status
+  PodReadyToStartContainers   False
+  Initialized                 True
+  Ready                       False
+  ContainersReady             False
+  PodScheduled                True
+Volumes:
+  html:
+    Type:          HostPath (bare host directory volume)
+    Path:          /hostpath/test
+    HostPathType:  Directory
+
+Events:
+  Type     Reason       Age                  From               Message
+  ----     ------       ----                 ----               -------
+  Normal   Scheduled    3m46s                default-scheduler  Successfully assigned default/hostpath-pod to minikube
+  Warning  FailedMount  99s (x9 over 3m46s)  kubelet            MountVolume.SetUp failed for volume "html" : hostPath type check failed: /hostpath/test is not a directory
+```
+이벤트를 보면 `failed: /hostpath/test is not a directory` 마운트 실패 이벤트가 존재합니다.
+
+```YAML
+# kubectl get pod -o yaml
+ - lastProbeTime: null
+    lastTransitionTime: "2024-06-24T12:52:41Z"
+    message: 'containers with unready status: [html-generator web-server]'
+    reason: ContainersNotReady
+    status: "False"
+    type: Ready
+  - lastProbeTime: null
+    lastTransitionTime: "2024-06-24T12:52:41Z"
+    message: 'containers with unready status: [html-generator web-server]'
+    reason: ContainersNotReady
+    status: "False"
+    type: ContainersReady
+```
+파드의 컨디션을 확인 확인해보면 'containers with unready status: [html-generator web-server]' 메시지가 노출됩니다.
+
+`.spec.volumes.hostPath.type.Directory`, `.spec.volumes.hostPath.type.File`같이 문제가 발생할 수 있는 옵션은 사용을 주의해야 합니다.
 
 ### nfs
 nfx 볼륨은 기존 NFS(네트워크 파일 시스템) 볼륨을 파드에 마운트할 수 있습니다. emptyDir과는 다르게 마운트가 해제되어도 볼륨의 데이터는 유지됩니다.

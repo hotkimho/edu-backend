@@ -2,11 +2,10 @@
 [1. 레플리카셋](#레플리카셋)  
 [2. 레플리카셋으로 생성된 파드의 레이블이 수정된다면?](#레플리카셋으로-생성된-파드의-레이블이-수정된다면)    
 [3. 오너 레퍼런스](#오너-레퍼런스) 
-[4. 데몬셋](#데몬셋)      
-[5. Tolerations 및 Taints](#tolerations-및-taints)    
-[6. 잡](#잡)  
-[7. 크론 잡](#크론-잡)  
-[8. 크론잡 히스토리](#크론잡-히스토리)
+[4. 데몬셋](#데몬셋)         
+[5. 잡](#잡)  
+[6. 크론 잡](#크론-잡)  
+[7. 크론잡 히스토리](#크론잡-히스토리)
 
 
 ### 레플리카셋
@@ -269,80 +268,6 @@ metadata:
   namespace: kube-system
 ```
 kube-proxy를 조회해보면 데몬셋으로 되어있는걸 확인할 수 있습니다.
-
-### Tolerations 및 Taints
-테인트는 특정 조건이 있는 노드에 파드가 스케줄링되지 않도록 하는 기능입니다.
-
-톨러레이션은 파드가 특정 테인트를 무시하고 노드에 스케줄링될 수 있도록 허용하는 기능입니다.
-
-톨러레이션은 테인트(taint)와 함께 작동하여 파드가 적절한 노드에 스케줄링 되도록 보장합니다.
-
-테인트는 특정 조건이 있는 노드에 파드가 스케줄링되지 않도록 설정하는 기능이라고 했습니다. 노드에 테인트를 추가하면 톨러레이션이 없는 파드는 그 노드에 스케줄링되지 않습니다.
-
-테인트는 다음과 같이 구성됩니다.
-- key
-  - taint 이름입니다.
-- value
-  - taint 값입니다.
-- effect
-  - 테인트가 적용되는 방식입니다. 세 가지 유형이 있습니다.
-    - NoSchedule: 해당 테인트가 있는 노드에 파드를 스케줄링하지 않습니다.
-    - PreferNoSchedule: 가능하면 해당 테인트가 있는 노드에 파드를 스케줄링하지 않습니다.
-    - NoExecute: 기존에 실행 중인 파드도 퇴출시키며, 새로운 파드를 스케줄링하지 않습니다.
-
-톨러레이션은 다음과 같이 구성됩니다.
-- key
-  - 톨러레이션 이름입니다.
-- operator
-  - Exists, Equal 값이 있습니다.
-  - Exists: 키가 존재하기만 하면 톨러레이션을 적용합니다.
-  - Equal: 키와 값이 정확하게 일치해야 톨러레이션을 적용합니다.
-- value
-  - 톨러레이션 값입니다.
-- effect
-  - 적용될 테인트와 일치해야 합니다. 값이 다르면 적용되지 않습니다.
-- tolerationSeconds(option)
-  - 테인트의 `effect:NoExecute`인 경우 적용되며, 파드가 노드에서 얼마나 생존할 시간을 나타냅니다.
-  - 3600 값으로 설정된 경우, 해당 파드는 1시간 후 노드에서 축출됩니다.
-
-마스터노드에 테인트를 추가하여 파드를 배치할 수 없게 만들고 마스터노드에 데몬셋을 통해 파드를 배치해보겠습니다.
-
-```
-kubectl taint nodes hkim-host-master node-role.kubernetes.io/master:NoSchedule
-```
-
-```YAML
-apiVersion: apps/v1
-kind: DaemonSet
-metadata:
-  name: daemonset-test
-spec:
-  selector:
-    matchLabels:
-      name: kimho
-  template:
-    metadata:
-      labels:
-        name: kimho
-    spec:
-      tolerations:
-      - key: "node-role.kubernetes.io/master"
-        operator: "Exists"
-        effect: "NoSchedule"
-      containers:
-      - name: nginx
-        image: nginx
-```
-- spec
-  - key: node-role.kubernetes.io/master 이 키를 가진 테인트에 대해 적용합니다.
-  - operator: Exists 해당 키가 존재하면 톨러레이션이 적용됩니다.
-  - effect: NoSchedule가 적용된 테인트(파드가 스케줄링되지 않는 노드)를 무시하고 노드에 파드가 스케줄링 될 수 있습니다.
-
-실행된 결과를 보면
-![alt text](./images/daemonset-tolerations.png)
-다른 노드들은 워커노드에 파드가 배치되었지만, 방금 생성한 데몬셋으로 생성된 파드는 마스터 노드에 배치된 걸 알 수 있습니다.
-
-
 
 ### 잡
 이전에 작성했던 레플리카셋, 데몬셋은 완료됐다는 속성없이 지속적인 태스크를 실행합니다.

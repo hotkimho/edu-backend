@@ -670,50 +670,6 @@ Rules:
 ```
 defaultBackend, Rules에 대한 정의를 직접 확인할 수 있습니다.
 
-### 인그레스 컨트롤러
-인그레스 리소스를 동작하려면 인그레스 컨트롤러를 설치해야 한다.
-
-```
-# 인그레스 컨트롤러 설치
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/cloud/deploy.yaml
-
-# 설치 확인
-kubectl get pods -n ingress-nginx -o wide
-```
-
-![image](./images/get-ingress.png)
-
-인그레스 설치를 확인한다.
-
-```
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: kubia
-spec:
-  ingressClassName: nginx
-  rules:
-  - host: kubia.example.com
-    http:
-      paths:
-      - path: /ho
-        pathType: Prefix
-        backend:
-          service:
-            name: kimho
-            port:
-              number: 80
-```
-그리고 이 매니페스트 파일을 통해 인그레스 리소스를 생성한다.
-`kubia.example.com` 의 도메인을 가지고 /ho 경로로 요청한 경우 미리 정의된 `kimho` 서비스로 80포트로 요청한다는 내용이다.
-
-![image](./images/etc-hosts.png)
-
-로컬에서 도메인을 테스트할 수 있게 `/etc/hosts`에 `컨트롤러 ip 도메인`값을 추가 했다.
-
-![image](./images/req-ingress.png)
-
-요청을 보면 도메인에 접근한 경우 404 에러, /ho 경로로 접근한 경우 요청이 잘 된걸 확인할 수 있다.
 
 ### 인그레스 클래스
 인그레스는 서로 다른 컨트롤러에 의해 구현될 수 있습니다. 인그레스 클래스는 `인그레스가 어떤 컨트롤러에 의해 처리될지 지정`하는 리소스입니다.
@@ -760,6 +716,52 @@ spec:
 
 기본 인그레스로 설정하려면 `metadata.annotations.ingressclass.kubernetes.io/is-default-class` 값을 True로 설정하면됩니다.
 
+
+### 인그레스 컨트롤러
+인그레스 리소스를 동작하려면 인그레스 컨트롤러를 설치해야 한다.
+
+```
+# 인그레스 컨트롤러 설치
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/cloud/deploy.yaml
+
+# 설치 확인
+kubectl get pods -n ingress-nginx -o wide
+```
+
+![image](./images/get-ingress.png)
+
+인그레스 설치를 확인한다.
+
+```
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kubia
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: kubia.example.com
+    http:
+      paths:
+      - path: /ho
+        pathType: Prefix
+        backend:
+          service:
+            name: kimho
+            port:
+              number: 80
+```
+그리고 이 매니페스트 파일을 통해 인그레스 리소스를 생성한다.
+`kubia.example.com` 의 도메인을 가지고 /ho 경로로 요청한 경우 미리 정의된 `kimho` 서비스로 80포트로 요청한다는 내용이다.
+
+![image](./images/etc-hosts.png)
+
+로컬에서 도메인을 테스트할 수 있게 `/etc/hosts`에 `컨트롤러 ip 도메인`값을 추가 했다.
+
+![image](./images/req-ingress.png)
+
+요청을 보면 도메인에 접근한 경우 404 에러, /ho 경로로 접근한 경우 요청이 잘 된걸 확인할 수 있다.
+
 ### 인그레스 동작 방식
 실제로 도메인이 입력되었을 때, 인그레스가 어떻게 동작하는지 살펴본다.
 
@@ -777,5 +779,80 @@ spec:
 4. 요청 전달
 인그레스 컨트롤러가 요청을 서비스 리소스에 직접 전달하는게 아닌 서비스와 관련된 엔드포인트를 확인하여 실제 요청이 파드까지 전달됩니다.
 
-그럼 인그레스 컨트롤러는 어디에 위치할까??
-인그레스 컨트롤러는 워커 노드에서 파드형태로 실행된다고 한다. 하지만 별도로 구성된 워커 노드 안에서 실행하는지, 아니면 임의의 노드에서 실행하는지는 명확하게 나와있지 않았다. 
+
+인그레스 컨트롤러의 위치
+인그레스 컨트롤러는 ingress-nignx 네임스페이스에 속한 파드로 존재합니다.
+
+```YAML
+# k get pod -n ingress-nginx <nginx-controller-pod-name> -o yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: ingress-nginx
+    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/part-of: ingress-nginx
+    app.kubernetes.io/version: 1.10.1
+    pod-template-hash: 6948cd7b94
+  name: ingress-nginx-controller-6948cd7b94-w6p7x
+  namespace: ingress-nginx
+  ownerReferences:
+  - apiVersion: apps/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: ReplicaSet
+    name: ingress-nginx-controller-6948cd7b94
+    uid: 90fedcd3-f474-4f5b-a82e-966c8a2d5b2c
+```
+
+nginx controller 파드를 조회하면 다음과 같은 정보가 나옵니다. `오너 레퍼런스`를 확인하면 이 파드는 `ReplicaSet`에 의해 생성되었습니다.
+
+해당 레플리카셋의 상세 정보를 확인해보겠습니다.
+```YAML
+# kubectl get rs <rs-name> -n ingress-nginx -o ymal
+apiVersion: v1
+items:
+- apiVersion: apps/v1
+  kind: ReplicaSet
+  metadata:
+    labels:
+      app.kubernetes.io/component: controller
+      app.kubernetes.io/instance: ingress-nginx
+      app.kubernetes.io/name: ingress-nginx
+      app.kubernetes.io/part-of: ingress-nginx
+      app.kubernetes.io/version: 1.10.1
+      pod-template-hash: 6948cd7b94
+    name: ingress-nginx-controller-6948cd7b94
+    namespace: ingress-nginx
+    ownerReferences:
+    - apiVersion: apps/v1
+      blockOwnerDeletion: true
+      controller: true
+      kind: Deployment
+      name: ingress-nginx-controller
+      uid: 125e2121-7dbd-46eb-97a6-e6e3c5c2563a
+```
+이 레플리카셋의 오너 레퍼런스를 확인하면 deployment로 생성된 걸 알 수 있습니다.
+
+```YAML
+# kubectl get deploy <deploy-name> -n ingress-nginx -o yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: ingress-nginx
+    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/part-of: ingress-nginx
+    app.kubernetes.io/version: 1.10.1
+  name: ingress-nginx-controller
+  namespace: ingress-nginx
+```
+실제 이 디플로이먼트로 인해 인그레스 컨트롤러 파드가 생성된걸 알 수 있습니다.
+
+```
+NAME        
+pod/ingress-nginx-controller-6948cd7b94-w6p7x   1/1     Running     0          8d    172.32.103.63    hkim-host-node     <none>           <none>
+```
+파드가 생성된 위치도 클러스터의 워커노드에 배치된걸 알 수 있습니다.

@@ -715,6 +715,51 @@ spec:
 
 요청을 보면 도메인에 접근한 경우 404 에러, /ho 경로로 접근한 경우 요청이 잘 된걸 확인할 수 있다.
 
+### 인그레스 클래스
+인그레스는 서로 다른 컨트롤러에 의해 구현될 수 있습니다. 인그레스 클래스는 `인그레스가 어떤 컨트롤러에 의해 처리될지 지정`하는 리소스입니다.
+
+인그레스 클래스 정의는 다음과 같습니다.
+```YAML
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: nginx-class
+spec:
+  controller: k8s.io/ingress-nginx
+  parameters:
+    apiGroup: networking.example.com
+    kind: IngressParameters
+    name: nginx-config
+    scope: Cluster
+```
+
+- metadata
+  - name: 인그레스 클래스의 이름입니다. 인그레스를 정의할 때 사용할 `ingressClassName`와 동일해야합니다.
+- spec
+  - controller: 사용할 컨트롤러에 대한 노운 레이블값입니다.
+  - parameters: 해당 인그레스클래스와 연관있는 환경 설정을 제공하는 리소스를 참고할 수 있습니다.
+    - apiGroup: 커스텀 리로스가 속한 API 그룹을 명시합니다. 
+    - kind: 커스텀 리소스의 종류를 나타냅니다.
+    - name: 참조할 커스텀 리로스의 이름입니다.
+    - scope: Cluter(Default) / Namespace
+
+특정 인그레스 클래스를 클러스터의 기본 값으로 사용할 수 있습니다. 이 경우 인그레스 YAML 파일 작성시 `.spec.ingressClassName` 필드를 생략할 수 있으며 생략 시, 기본으로 설정된 인그레스 클래스가 사용됩니다. 만약 2개 이상의 기본 인그레스 클래스가 정의된 경우, `.spec.ingressClassName` 을 생략할 수 없습니다.
+
+```YAML
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  labels:
+    app.kubernetes.io/component: controller
+  name: nginx-example
+  annotations:
+    ingressclass.kubernetes.io/is-default-class: "true"
+spec:
+  controller: k8s.io/ingress-nginx
+```
+
+기본 인그레스로 설정하려면 `metadata.annotations.ingressclass.kubernetes.io/is-default-class` 값을 True로 설정하면됩니다.
+
 ### 인그레스 동작 방식
 실제로 도메인이 입력되었을 때, 인그레스가 어떻게 동작하는지 살펴본다.
 

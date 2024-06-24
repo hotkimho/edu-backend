@@ -46,7 +46,7 @@ spec:
       - name: kubia
         image: luksa/kubia
 ```
-`kind : Rep![alt text](image.png)licaSet` 이제 Pod가 아닌 레플리카셋으로 명시합니다.
+`kind: ReplicaSet` Pod가 아닌 레플리카셋으로 명시합니다.
 `spec.replicas : 3` 몇 개의 파드가 실행될 지 설정합니다.
 - spec
   - selector

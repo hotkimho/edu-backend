@@ -332,20 +332,18 @@ nfs server에서 nfs-file을 확인했습니다.
 
 파일을 생성할 때 에러가 나는걸 확인할 수 있습니다.
 
-
-
 ### 퍼시스턴트 볼륨
-쿠버네티스는 퍼시스턴스 볼륨(PV), 퍼시스턴스 볼륨 클레임(PVC) 리소스를 제공함으로 써 사용자에게 스토리지를 제공한다.
+쿠버네티스는 퍼시스턴스 볼륨(PV), 퍼시스턴스 볼륨 클레임(PVC) 리소스를 제공함으로 써 사용자에게 스토리지를 제공합니다.
 
-PV는 클러스터 관리자가 프로비저닝 하거나 스토리지 클래스를 사용하여 생성된 클러스터의 스토리지를 참조합니다. 스토리지는 관리자가 직접 NFS나 AWS같은 스토리지 클래스를 사용하여 구성합니다. 
-노드가 클러스터의 리소스(구성 요소)인 것처럼 PV는 클러스터의 리로스입니다. 
+PV는 클러스터 관리자가 프로비저닝 하거나 스토리지 클래스를 사용하여 생성된 클러스터의 스토리지를 참조합니다. 스토리지는 관리자가 직접 NFS나 AWS같은 스토리지 클래스를 사용하여 구성합니다. 그리고 클러스터 내의 노드와 독립적으로 존재합니다. PV는 쿠버네티스 API 객체로 정의되며 사용 가능한 스토리지 리소스를 나타냅니다.
+
 
 PVC는 파드가 PV리소스에 대한 요청입니다. 파드가 노드에게 특정 수준의 리로스(CPU, RAM)을 요청하는 것 처럼 클레임은 특정 크기, 접근 모드(Read, Write)를 요청합니다.
 
 그림과 yaml 매니페스트를 통해 자세히 알아봅니다.
 ![image](./images/pv-example.jpeg)
 
-그림을 보면 쿠버네티스 API를 사용해 NFS 스토리에 대한 PV를 생성합니다.
+그림을 보면 사용자는 PVC를 참조하는 파드를 생성하여 적정한 크기와 접근 모드의 PV를 찾고 PVC를 PV에 바인딩합니다.
 
 ```
 apiVersion: v1
@@ -357,22 +355,44 @@ spec:
     storage: 100Gi
   accessModes:
     - ReadWriteMany
-  nfs:
-    path: /tmp
-    server: nfs-server.com
-```
-이 pv 생성 매니페스트를 보면 `nfs-server.com` 의 NFS 파일 스토리지를 이용하여, NFS 서버의 /tmp 디렉토리를 참조하는 PV를 만듭니다.
-이 PV는 100GiB 용량을 가지며 접근 모드는 `ReadWriteMany`입니다.
+  persistentVolumeReclaimPolicy: Retain
 
-접근 모드는 다음과 같습니다
-- ReadWriteOnce
-  - 하나의 노드에서 해당 볼륨이 읽기/쓰기로 마운트 될 수 있다.
-- ReadOnlyMany
-  - 볼륨이 다수의 노드에서 읽기 전용으로 마운트 될 수 있다.
-- ReadWriteMany
-  - 볼륨이 다수의 노드에서 읽기/쓰기로 마운트 될 수 있다.
-- ReadWriteOncePod
-  - 볼륨이 단일 파드에서 읽기/쓰기로 마운트 될 수 있다.(전체 클러스터에서 하나의 파드만 해당 PVC를 읽기/쓰기할 수 있습니다.)
+  nfs:
+    path: /var/nfs
+    server: 192.168.49.2
+```
+PV는 다음과 같이 구성됩니다.
+
+- kind: PersistentVolume
+- metadata
+  - name: PV 이름
+- spec
+  - capacity
+    - PV 저장 용량 ex) 100Gi
+  - accessModes
+    - ReadWriteOnce
+      - 하나의 노드에서 해당 볼륨이 읽기/쓰기로 마운트 될 수 있다.
+    - ReadOnlyMany
+      - 볼륨이 다수의 노드에서 읽기 전용으로 마운트 될 수 있다.
+    - ReadWriteMany
+      - 볼륨이 다수의 노드에서 읽기/쓰기로 마운트 될 수 있다.
+    - ReadWriteOncePod
+      - 볼륨이 단일 파드에서 읽기/쓰기로 마운트 될 수 있다.(전체 클러스터에서 하나의 파드만 해당 PVC를 읽기/쓰기할 수 있습니다.)
+  - persistentVolumeReclaimPolicy
+    - Retain(default)
+      - PV가 사용하지 않게 되어도, PV와 그 안의 데이터는 유지됩니다.
+      - 클러스터 관리자가 수동으로 PV를 삭제하거나 다시 사용할 수 있습니다.
+    - Recycle
+      - PV가 사용하지 않게 되면, PV 안의 데이터가 삭제되고 기본 디렉토리만 남게됩니다.
+      - 더 이상 사용하지 않는 데이터를 자동으로 정리할 때 유용합니다.
+      - 최근 버전의 쿠버네티스는 권장하지 않는 옵션입니다.
+    - Delete
+      - PV가 사용하지 않게 되면, PV와 그 안의 데이터가 완전히 삭제됩니다.
+      - 데이터가 더 이상 필요 없고, 자동으로 스토리지를 해제해야 할 때 유용합니다.
+    - 
+  - storageClassName(option)
+    - 요청하는 스토리지 클래스
+
 
 ```
 apiVersion: v1
@@ -386,7 +406,8 @@ spec:
     requests:
       storage: 50Gi
 ```
-이 pvc는 pv로 부터 50Gib 스토리지를 사용을 요청하고, 해당 볼륨은 다수의 노드에서 읽기/쓰기로 마운트 될 수 있음을 의미한다.
+이 PVC는 PV로 부터 50Gib 스토리지를 사용을 요청하고, 해당 볼륨은 다수의 노드에서 읽기/쓰기로 마운트 될 수 있음을 의미합니다.
+
 
 ```
 apiVersion: v1
@@ -400,21 +421,61 @@ spec:
     volumeMounts:
     - mountPath: "/mnt"
       name: nfs-storage
-    command: [ "touch 'testfile'" ]
+    command: [ "sh", "-c", "touch /mnt/testfile && sleep 3600" ]
   volumes:
   - name: nfs-storage
     persistentVolumeClaim:
       claimName: pvc-nfs
 ```
-파드에서 pvc를 이용해 볼륨을 마운트하는 매니페스트 파일입니다.
-이미 전 과정으로 인해 pv와 바인딩된 pvc가 있고, `pvc-nfs` pvc를 사용하여 `/mnt` 디렉토리에 50Gib 크기만큼 마운트하고 최초 실행 시 testfile을 생성합니다.
 
-그럼 퍼시스턴스 볼륨을 사용했을 때 어떤 장점이 있는가?
-1. 개발자가 스토리기 요구 기술을 알 필요 없다.
-초기엔 pv, pvc를 생성하고 설정을 해주어야 하지만 첫 생성 이후 개발자는 pvc를 이용해 필요한 스토리지를 가져올 수 있다.
-2. 클러스터간 데이터 공유
-스토리지를 클러스터 외부로 구성한 경우, 각각의 클러스터에서 pv, pvc 설정만 된다면 사용할 수 있고 클러스터 간 데이터의 공유도 가능하다.
-<<<<<<< HEAD
+이 매니페스트 파일은 `pvc-nfs` PVC를 사용하여 `/mnt` 디렉토리에 50GiB 크기만큼 NFS 볼륨을 마운트합니다. 그리고 파드가 실행될 때, /mnt 경로에 testfile을 생성합니다.
+
+그럼 퍼시스턴스 볼륨을 사용했을 때 어떤 장점이 있을까요?
+1. 개발자가 스토리기 요구 기술을 알 필요 없습니다.
+초기엔 PV, PVC를 생성하고 설정을 해주어야 하지만 첫 생성 이후 개발자는 PVC를 이용해 필요한 스토리지를 가져올 수 있습니다.
+1. 클러스터간 데이터 공유
+스토리지를 클러스터 외부로 구성한 경우, 각각의 클러스터에서 PV, PVC 설정만 된다면 사용할 수 있고 클러스터 간 데이터의 공유도 가능합니다.
+
+![alt text](./images/pvc-result.png)
+
+해당 컨테이너에 접속하여 /mnt 경로에 가면 파일이 생성된 걸 볼 수 있습니다.
+
+생성된 PV를 조회해봅니다.
+```
+# kubectl get pv
+NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS      CLAIM             STORAGECLASS   VOLUMEATTRIBUTESCLASS   REASON   AGE
+pv-nfs                                     100Gi      RWX            Retain           Available                                    <unset>                          33s
+pvc-07e615ad-1e42-4a03-8238-8165d365d761   50Gi       RWX            Delete           Bound       default/pvc-nfs   standard       <unset>                          18s
+
+# kubectl get pvc
+NAME      STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+pvc-nfs   Bound    pvc-07e615ad-1e42-4a03-8238-8165d365d761   50Gi       RWX            standard       <unset>                 8m22s
+```
+PVC 요청에 의해 생성된 PV를 확인할 수 있습니다. PV에 어떤 PVC에 의해 만들어졌는지 <namespace/pvc-name>을 확인할 수 있습니다.
+
+PV, PVC의 status는 다음과 같이 정의됩니다.
+
+PV Status
+- Available
+  - 사용 가능한 상태, PVC에 바인딩 되지 않음
+- Bound
+  - PVC에 바인딩된 상태
+  - 위의 조회된 내용을 보면 Status가 Bound 인걸 확인할 수 있습니다.
+- Released
+  - PVC가 삭제되었지만 PV가 재사용되지 않음
+  - PVC가 삭제되는 경우는 사용자가 직접 삭제, 네임스페이스가 삭제될 경우 삭제될 수 있습니다.
+  - PVC가 삭제된 경우 `persistentVolumeReclaimPolicy` 옵션에 따라 다르게 처리됩니다.
+- Failed
+  - PV에 문제가 발생하여 사용할 수 없음
+
+PVC Status
+- Pending
+  - PV에 바인딩 되지 않은 상태
+- Bound
+  - PV에 바인딩된 상태
+- Lost
+  - 바인딩된 PV를 더 이상 찾을 수 없는 상태
+
 
 ### 동적 프로비저닝
 퍼시스턴트 볼륨과 퍼시스턴트 볼륨 클레임을 통해 개발자가 내부적으로 별도의 과정없이 스토리지를 사용할 수 있는지 확인했습니다.

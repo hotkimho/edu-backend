@@ -705,7 +705,7 @@ spec:
               number: 80
 ```
 그리고 이 매니페스트 파일을 통해 인그레스 리소스를 생성한다.
-`kubia.example.com` 의 도메인을 가지고 도메인/ho로 요청한 경우 미리 정의된 `kimho` 서비스로 80포트로 요청한다는 내용이다.
+`kubia.example.com` 의 도메인을 가지고 /ho 경로로 요청한 경우 미리 정의된 `kimho` 서비스로 80포트로 요청한다는 내용이다.
 
 ![image](./images/etc-hosts.png)
 

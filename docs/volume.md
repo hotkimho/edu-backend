@@ -270,29 +270,68 @@ Events:
 `.spec.volumes.hostPath.type.Directory`, `.spec.volumes.hostPath.type.File`같이 문제가 발생할 수 있는 옵션은 사용을 주의해야 합니다.
 
 ### nfs
-nfx 볼륨은 기존 NFS(네트워크 파일 시스템) 볼륨을 파드에 마운트할 수 있습니다. emptyDir과는 다르게 마운트가 해제되어도 볼륨의 데이터는 유지됩니다.
-NFX는 미리 데이터를 채워 사용할 수 있고, 여러 파드가 데이터를 공유하여 사용할 수 있습니다.
+nfs 볼륨은 기존 NFS(네트워크 파일 시스템) 볼륨을 파드에 마운트할 수 있습니다. emptyDir과는 다르게 마운트가 해제되어도 볼륨의 데이터는 유지됩니다. NFS 볼륨을 사용하여 파드간에 데이터를 공유할 수 있고, 여러 작성자가 동시에 마운트할 수 있습니다.
 
-```
+단 NFS 서버가 준비가 되어야 합니다. 아래의 예제는 minikube에 nfs 서버를 설정하여 사용합니다.
+
+```YAML
 apiVersion: v1
 kind: Pod
 metadata:
-  name: test-pd
+  name: nfs-pod
 spec:
   containers:
-  - image: registry.k8s.io/test-webserver
-    name: test-container
+  - image: luksa/fortune
+    name: html-generator
     volumeMounts:
-    - mountPath: /nfs-data
-      name: test-volume
-  volumes:
-  - name: test-volume
-    nfs:
-      server: nfs-server.example.com
-      path: /nfs-volume
+    - name: nfs-volume
+      mountPath: /var/htdocs     
+  - image: nginx:alpine
+    name: web-server
+    volumeMounts:
+    - name: nfs-volume
+      mountPath: /usr/share/nginx/html  
       readOnly: true
+    ports:
+    - containerPort: 80
+      protocol: TCP
+  volumes: 
+  - name: nfs-volume      
+    nfs:
+      server: 192.168.49.2 # minikube를 통한 nfs 서버 사용
+      path: /var/nfs
 ```
-매니페스트 파일을 확인하여 NFX서버가 동작 중인 상태에서 /nfs-volume 디렉토리를 마운트 하여 /nfs-data 경로를 통해 사용한 예시이다.
+
+nfs는 `.spec.volumes.nfs`에 필드를 정의하여 사용합니다.
+- .spec.volumes.nfs
+  - server: nfs 서버의 주소입니다.
+  - path: NFS 서버에서 공유된 디렉토리 경로입니다.
+  - readOnly: True/False 볼륨을 읽기 전용으로 마운트합니다.
+    - 기본값은 false입니다.
+
+hostPath와 동일하게 다음의 단계로 확인합니다.
+1. html-generator 컨테이너 /var/htdocs 디렉토리에 파일 생성
+2. web-server 컨테이너 /usr/share/nginx/html 디렉토리에서 파일 확인
+3. nfs서버 /var/nfs 디렉토리에서 파일 확인 
+
+![alt text](./images/nfs-container-1.png)
+
+nfs-file 파일을 생성했습니다.
+
+![alt text](./images/nfs-container-2.png)
+
+nfs-file이 생성되었습니다.
+
+![alt text](./images/nfs-server.png)
+
+nfs server에서 nfs-file을 확인했습니다.
+
+만약 ReadOnly 가 True로 설정된 디렉토리에 파일을 생성하면 어떻게 되는지 확인해보겠습니다.
+
+![alt text](./images/nfs-read-only-test.png)
+
+파일을 생성할 때 에러가 나는걸 확인할 수 있습니다.
+
 
 
 ### 퍼시스턴트 볼륨

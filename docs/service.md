@@ -556,7 +556,7 @@ spec:
 
 
 ### 인그레스
-인그레스는 클러스터 외부에서 클러스터 내부의 서비스에 접근을 관리하는 오브젝트입니다. 트래픽 라우팅 규칙을 정의하여 외부에서 들어오는 트래픽을 서비스에 적절히 라우팅합니다.
+인그레스는 클러스터 외부에서 클러스터 내부의 서비스에 접근을 관리하는 API 오브젝트입니다. 트래픽 라우팅 규칙을 정의하여 외부에서 들어오는 트래픽을 서비스에 적절히 라우팅합니다.
 
 ![image](./images/ingress.png)
 
@@ -564,10 +564,111 @@ spec:
 - 외부 접속 URL 제공
 - 로드 밸런싱
 - SSL / TLS 종료
-- 이름 기산 가상 호스팅
+- 이름 기반 가상 호스팅
 
-인그레스로 위와 같은 기능을 사용하려면 `인그레스 컨트롤러`, `ingress-nginx`와 같은 도구들이 필요합니다.
+```YAML
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minimal-ingress
+spec:
+  ingressClassName: nginx-example
+  rules:
+  - host: "example.com"
+    http:
+      paths:
+      - path: /testpath
+        pathType: Prefix
+        backend:
+          service:
+            name: test
+            port:
+              number: 80
+```
+하나씩 구조를 설명합니다.
+- spec
+  - ingressClassName: 인그레스 컨트롤러 리소스 이름으로 어떤 컨트롤러를 구현할 것인지 정의합니다. (생략하려면 기본 인그레스 클래스가 정의되어 있어야 합니다)(특정 컨트롤러는 인그레스클래스를 정의하지 않아도 동작하지만 정의를 권장합니다.)
+  - rules
+    - host: host를 지정할 수 있습니다. 지정하지 않으면 ip로 연결됩니다.
+    - paths
+      - path: 요청될 URL경로 입니다.
+      - pathType: 경로 매칭 방식으로 (Prefix, Exact이 있음)
+        - Exact: URL이 정확히 일치 해야합니다.
+          - /testpath (매칭)
+          - /testpath/test (매칭되지 않음)
+        - Prefix: 경로가 지정된 경로로 시작하는 모든 요청을 매핑합니다.
+          - /testpath (매칭)
+          - /testpath/test (매칭)
+        - ImplementationSpecific
+          - 경러 매칭 방식을 인그레스 컨트롤러의 구현에 맡깁니다.(컨트롤러 마다 다를 수 있음)
+  
+경우에 따라 인그레스의 여러 경로와 요청이 일치할 수 있습니다. 이 경우 가장 긴 경로를 우선적으로 선택하며, 여전히 경로가 일치하는 경우 prefix보다 exact 경로가 사용됩니다.
+```YAML
+rules:
+  - host: example.com
+    http:
+      paths:
+      - path: /app
+        pathType: Prefix
+        backend:
+          service:
+            name: app-service
+            port:
+              number: 80
+      - path: /app/specific
+        pathType: Prefix
+        backend:
+          service:
+            name: specific-service
+            port:
+              number: 80
+      - path: /app/specific/exact
+        pathType: Exact
+        backend:
+          service:
+            name: exact-service
+            port:
+              number: 80
+```
+이런 예시가 있는 경우 아래와 같이 동작합니다.
+- 요청 경로
+  - /app/specific
+    - specific-service(prefix) 매칭
+  - /app/specific/test
+    - specific-service(prefix) 매칭
+  - /app/specific/exact
+    - exact-service 매칭
 
+이렇게 매칭되지 않은 요청에 대해서는 `DefaultBackend` 기능을 사용하여 처리할 수 있습니다.
+DefaultBackend는 `.spec.defaultBackend`에 정의됩니다. spec.rules가 명시되어 있지 않으면 defaultBackend는 반드시 정의되어야 합니다.
+```YAML
+# service or resource 둘 중 하나만 사용
+defaultBackend
+  service:
+    name: default-404-page
+    port:
+      number: 80
+  resource:
+    apiGroup: k8s.default.com
+    kind: StorageBucket
+    name: static-assets
+```
+- service
+  - 이 설정은 디폴트 백엔드로 요청이 온 경우 `404 페이지 서비스`로 요청을 전달합니다. (default-404-page는 정의되어 있어야 합니다)
+- resource
+  - StorageBucket 리소스는 오브젝트 스토리지 시스템에 있는 버킷(AWS S3 같은 리소스)입니다. 이 버킷은 `정적 파일이나 페이지를 포함`하여 요청이 온 경우 사용자에게 제공할 수 있습니다.
+
+인그레스를 생성하고 조회하면 `kubectl describe ingress <ingress>`
+```
+Name:             ingress-resource-backend
+Default backend:  APIGroup: k8s.example.com, Kind: StorageBucket, Name: static-assets
+Rules:
+  Host        Path  Backends
+  ----        ----  --------
+  *           
+              /icons   APIGroup: k8s.example.com, Kind: StorageBucket, Name: icon-assets
+```
+defaultBackend, Rules에 대한 정의를 직접 확인할 수 있습니다.
 
 ### 인그레스 컨트롤러
 인그레스 리소스를 동작하려면 인그레스 컨트롤러를 설치해야 한다.
@@ -632,4 +733,4 @@ spec:
 인그레스 컨트롤러가 요청을 서비스 리소스에 직접 전달하는게 아닌 서비스와 관련된 엔드포인트를 확인하여 실제 요청이 파드까지 전달됩니다.
 
 그럼 인그레스 컨트롤러는 어디에 위치할까??
-인그레스 컨트롤러는 워커 노드에서 피드형태로 실행된다고 한다. 하지만 별도로 구성된 워커 노드 안에서 실행하는지, 아니면 임의의 노드에서 실행하는지는 명확하게 나와있지 않았다. 
+인그레스 컨트롤러는 워커 노드에서 파드형태로 실행된다고 한다. 하지만 별도로 구성된 워커 노드 안에서 실행하는지, 아니면 임의의 노드에서 실행하는지는 명확하게 나와있지 않았다. 

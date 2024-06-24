@@ -414,7 +414,10 @@ spec:
 크론잡을 실행하면
 ```
 Events:
-  Type    Reason            Age    From                Message
+  Type    ::q
+  
+  
+  eason            Age    From                Message
   ----    ------            ----   ----                -------
   Normal  SuccessfulCreate  7m19s  cronjob-controller  Created job test-cronjob-28652314
   Normal  SawCompletedJob   6m44s  cronjob-controller  Saw completed job: test-cronjob-28652314, status: Complete
@@ -444,6 +447,54 @@ Events:
 
 주의할 점은 이 옵션이 굉장히 작은 시간(10초 미만)으로 설정되어 있으면 크론잡이 스케줄 되지 않을 수 있다.
 크론잡 컨트롤러는 10초마다 마지막 부터 현재까지 얼마나 많은 크론잡이 누락되었는지 확인한다. 만약 일정 수 이상(100개)의 일정이 누락되면 잡을 실행하지 않고 로그를 남긴다. 크론잡은 실패합니다.
+
+크론 잡도 일시중지(suspend)할 수 있습니다.
+생성된 크론잡의 스펙을 조회하여 `spec.suspend` 필드가 있는지 확인합니다.
+```YAML
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  creationTimestamp: "2024-06-24T08:02:44Z"
+  name: test-cronjob
+  namespace: default
+spec:
+  jobTemplate:
+    metadata:
+      creationTimestamp: null
+    spec:
+      template:
+        metadata:
+          creationTimestamp: null
+        spec:
+          containers:
+          - command:
+            - sh
+            - -c
+            - echo Hello World! && sleep 30
+            image: busybox
+            imagePullPolicy: Always
+  schedule: '*/1 * * * *'
+  suspend: false
+```
+`spec.suspend: false`로 되어 있는걸 확인할 수 있습니다.
+
+```
+# 크론잡 일시 정지 전
+NAME           SCHEDULE      SUSPEND   ACTIVE   LAST SCHEDULE   AGE
+test-cronjob   */1 * * * *   False     1        15s             8m31s
+
+kubectl patch cronjob <cronjob-name> -p '{"spec":{"suspend":true}}' 
+
+# 크론잡 일시 정지 후
+NAME           SCHEDULE      SUSPEND   ACTIVE   LAST SCHEDULE   AGE
+test-cronjob   */1 * * * *   True      0        67s             9m23s
+
+SUSPEND 필드가 True로 바뀐걸 확인할 수 있습니다.
+
+kubectl get cronjob <cronjob-name> -o yaml
+kubectl describe cronjob <cronjob-name>
+으로 조회 시, spec.suspend 필드가 true로 변경된 걸 확인할 수 있습니다.
+```
 
 ### 크론잡 히스토리
 일반적으로 잡의 경우 작업이 완료되면 만들어진 파드가 삭제되지 않습니다. 크론잡의 경우 굉장히 많은 수의 작업이 이루지면 파드수가 굉장히 많아 질 수 있습니다. 이 문제는 잡 히스토리 옵션을 사용하여 문제를 해결할 수 있습니다.

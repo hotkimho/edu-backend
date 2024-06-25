@@ -705,7 +705,7 @@ spec:
 - spec
   - controller: 사용할 컨트롤러에 대한 노운 레이블값입니다.
   - parameters: 해당 인그레스클래스와 연관있는 환경 설정을 제공하는 리소스를 참고할 수 있습니다.
-    - apiGroup: 커스텀 리로스가 속한 API 그룹을 명시합니다. 
+    - apiGroup: 커스텀 리소스가 속한 API 그룹을 명시합니다. 
     - kind: 커스텀 리소스의 종류를 나타냅니다.
     - name: 참조할 커스텀 리로스의 이름입니다.
     - scope: Cluter(Default) / Namespace

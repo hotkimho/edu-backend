@@ -6,9 +6,8 @@
   - [셀렉터 없는 서비스](#셀렉터-없는-서비스)
   - [엔드포인트슬라이스](#엔드포인트슬라이스)
   - [엔드 포인트](#엔드-포인트)
-  - [서비스 검색(환경변수)](#서비스-검색환경변수)
   - [서비스 생성](#서비스-생성)
-  - [서비스 검색(환경변수)](#서비스-검색환경변수-1)
+  - [서비스 검색(환경변수)](#서비스-검색환경변수)
   - [서비스 검색(DNS)](#서비스-검색dns)
   - [서비스 검색(FQDN)](#서비스-검색fqdn)
   - [헤드리스 서비스](#헤드리스-서비스)
@@ -193,9 +192,6 @@ Subsets:
 쿠버네티스에서 하나의 엔드포인트 오브젝트에는 최대 1000개의 엔드포인트가 포함될 수 있습니다.
 만약 많은 엔드포인트가 필요한 경우 `엔드포인트슬라이스`를 사용을 권장하며, 그럼에도 불구하고 엔드포인트 오브젝트를 사용할 경우 최대 1000개 엔드포인트까지만 저장하고 이후는 저장하지 않습니다. 이후 어노테이션에 `endpoints.kubernetes.io/over-capacity: truncated` 값을 설정하여 용량을 초과했음을 알립니다.
 
-
-### 서비스 검색(환경변수)
-
 ### 서비스 생성
 파드와 서비스를 생성하여, 서비스에 요청이 온 경우, `kimho` 레이블 가진 파드로 요청을 전달해보겠습니다.
 
@@ -244,6 +240,76 @@ spec:
 서비스, 파드에서 같은 label `app:kimho`이 정의되어 있습니다.
 ![image](./images/req-service.png)
 서비스를 조회하면, 서비스가 어떤 포트를 수신할 수 있는지 확인할 수 있습니다.
+
+`서비스 컨트롤러`는 `레이블이 일치하는 파드를 지속적으로 검색하고 <서비스 이름>의 엔드포인트 오브젝트에 대한 정보를 업데이트`를 합니다.
+
+즉 서비스와 레이블이 일치하는 파드가 생기면 엔드포인트 오브젝트에 파드의 정보(IP)가 업데이트됩니다.
+
+한번 확인해보겠습니다.
+
+```YAML
+apiVersion: v1
+kind: Service
+metadata:
+  name: ep-service
+spec:
+  ports:
+  - name: http
+    port: 80
+    targetPort: http
+  - name: https
+    port: 443
+    targetPort: https
+  selector:
+    app: kimho
+```
+기본적인 서비스를 만들었습니다.
+
+```
+# 서비스 조회
+NAME                           TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)                  AGE
+ep-service                     ClusterIP   10.110.243.104   <none>        80/TCP,443/TCP           9m3s
+
+# 엔드포인트 조회
+NAME                                            ENDPOINTS                           AGE
+cluster.local-nfs-subdir-external-provisioner   <none>                              25h
+ep-service                                      <none>                              9m7s
+```
+
+서비스를 생성하고 엔드포인트를 조회하면 <서비스 이름>에 해당하는 엔드포인트 오브젝트가 만들어졌지만 엔드포인트의 값은 `none`로 아무것도 없는 상태입니다. 이 상태에서 서비스와 같은 레이블을 가지는 파드를 생성해보겠습니다.
+
+```YAML
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ep-pod
+  labels:
+    app: kimho
+spec:
+  containers:
+  - image: luksa/kubia
+    name: kimho-pod
+    ports:
+    - name: http
+      containerPort: 8080
+    - name: https
+      containerPort: 8443
+```
+
+```
+# 파드 조회
+NAME     READY   STATUS    RESTARTS   AGE   IP             NODE       NOMINATED NODE   READINESS GATES
+ep-pod   1/1     Running   0          73s   10.244.2.230   minikube   <none>           <none>
+
+# 엔드포인트 조회
+NAME                                            ENDPOINTS                             AGE
+ep-service                                      10.244.2.230:8443,10.244.2.230:8080   11m
+```
+파드를 생성하고 다시 엔드포인트를 조회하면, 엔드포인트에 파드의 정보(IP, 요청할 포트)가 생긴걸 확인할 수 있습니다.
+
+해당 `ep-service` 서비스에 요청이 오면 `kube-proxy`가 `iptables` 규칙을 조회하여 요청을 적절한 파드로 라우팅합니다.
+
+kube-proxy의 iptables는 쿠버네티스 API 서버로부터 엔드포인트 정보를 받아와 이 정보를 토대로 `iptables`를 업데이트 합니다.
 
 ### 서비스 검색(환경변수)
 파드는 서비스에 접근할 수 있어야 하며, 서비스에 대한 정보를 찾기 위해 환경변수를 사용하여 찾을 수 있습니다.

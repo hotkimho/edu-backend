@@ -58,7 +58,8 @@ spec:
       port: 80
       targetPort: 9376
 ```
-이 서비스 오브젝트는 `app.kubernetes.io/name: MyApp` 레이블을 가진 파드의 TCP 9376 포트를 대상으로 합니다.
+이 서비스 오브젝트는 `app.kubernetes.io/name: MyApp` 레이블을 가진 파드의 TCP 9376 포트로 라우팅합니다.
+
 ```
 NAME         TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)   AGE
 kubernetes   ClusterIP   10.96.0.1        <none>        443/TCP   10d
@@ -99,7 +100,7 @@ spec:
     port: 80
     targetPort: http-web-svc
 ```
-파드에 `http-web-svc` 포트는 80번으러 정의되어 있습니다. 서비스의 targetPort 속성에선 이 이름을 참조할 수 있습니다. 그래서 서비스의 targetPort의 경우 80번 포트로 바인딩됩니다.
+파드에 `http-web-svc` 포트는 80번으로 정의되어 있습니다. 서비스의 targetPort 속성에선 이 이름을 참조할 수 있습니다. 그래서 서비스의 targetPort의 경우 80번 포트로 바인딩됩니다.
 
 이렇게 함으로써 파드에서 포트가 바뀌어도 서비스는 추가적인 변경이 필요 없으며 이름을 구성함으로써 많은 유연성을 제공할 수 있습니다. 
 

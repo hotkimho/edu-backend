@@ -606,6 +606,157 @@ kube-proxy에 의해 요청이 파드로 전달 됐을 때, 해당 파드가 실
   - Pod-B2
 이렇게 되어 있는 경우, 요청이 들어왔을 때, A, B노드는 균등하게 분배되어 균등해 보이지만 실질적으로 파드 입장에서 보면 A1(50%), B1(25%), B2(25%)형태로 분배된다.
 
+실제 `externalTrafficPolicy: local` 옵션을 설정하여 2개의 노드(마스터, 워커)로 테스트 해보겠습니다.
+
+사용한 매니페스트 파일입니다.
+```YAML
+# 서비스
+apiVersion: v1
+kind: Service
+metadata:
+  name: traffic-service
+spec:
+  type: NodePort
+  selector:
+    app: nginx
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 80
+  externalTrafficPolicy: Local
+
+--
+# 파드(마스터)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: master-nginx-pod
+  labels:
+    app: nginx
+spec:
+  nodeName: hkim-host-master
+  containers:
+  - name: nginx
+    image: nginx
+    ports:
+    - containerPort: 80
+
+--
+# 파드(노드)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: node-nginx-pod
+  labels:
+    app: nginx
+spec:
+  nodeName: hkim-host-node
+  containers:
+  - name: nginx
+    image: nginx
+    ports:
+    - containerPort: 80
+```
+
+생성된 결과입니다.
+```
+# 생성된 파드
+NAME                          READY   STATUS      RESTARTS          AGE     IP               NODE               NOMINATED NODE   READINESS GATES
+master-nginx-pod              1/1     Running     0                 6m54s   172.32.146.116   hkim-host-master   <none>           <none>
+node-nginx-pod                1/1     Running     0                 6m51s   172.32.103.56    hkim-host-node     <none>           <none>
+
+# 생성된 서비스
+NAME                  TYPE           CLUSTER-IP       EXTERNAL-IP   PORT      
+traffic-service       NodePort       10.96.225.219    <none>        80:30500/TCP             9m12s
+
+# 노드
+NAME               STATUS   ROLES           AGE   VERSION   INTERNAL-IP     EXTERNAL-IP   OS-IMAGE             KERNEL-VERSION       CONTAINER-RUNTIME
+hkim-host-master   Ready    control-plane   15d   v1.27.6   10.60.160.171   <none>        Ubuntu 22.04.3 LTS   5.15.0-100-generic   containerd://1.6.28
+hkim-host-node     Ready    worker          15d   v1.27.6   10.60.160.172   <none>        Ubuntu 22.04.3 LTS   5.15.0-101-generic   containerd://1.6.28
+
+# 노드로 요청(요청 성공)
+curl 10.60.160.171:30500
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+....
+
+curl 10.60.160.172:30500
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+....
+```
+생성 후, 각 노드(마스터, 워커)노드에 요청을 보내면 요청이 성공적으로 이루어졌습니다.
+
+여기서 `워커 노드안에 있는 파드`를 삭제 후, 워커노드로 다시 요청해보겠습니다.
+
+```
+curl 10.60.160.172:30500
+curl: (28) Failed to connect to 10.60.160.172 port 30500 after 130645 ms: Connection timed out
+```
+워커 노드안에 처리할 수 있는 파드가 없어서 타임아웃이 발생했습니다.
+
+```
+제가 생각한 동작이랑 많이 다릅니다.
+
+저는 파드가 없는 노드에 요청이 온 경우, 파드가 있는 노드로 요청을 전달하여 처리가 될 줄 알았는데 이 방법은 externalTrafficPolicy: Cluster 모드랑 다를게 없습니다.
+
+externalTrafficPolicy: local 설정은 파드가 없는 노드에 요청이 오면 이 요청에 대한 응답을 클라이언트는 받을 수 없습니다.
+
+불필요한 네트워크 홉은 발생하지 않지만 클라이언트가 요청을 응답할 수 없으므로
+- 직접 노드에 파드 할당
+- 데몬셋 사용
+- 파드 모니터링
+- 프로브 사용(지속적으로 파드가 실행 되도록)
+
+위와 같이 노드에 파드가 고정적으로 생기는 전략을 사용해야합니다.
+```
+
+그럼 여기서 실행중인 서비스의 `externalTrafficPolicy: Cluster` 옵션으로 수정하면 어떻게 될까요?
+
+옵션이 수정되면 서비스 컨트롤러가 이를 감지하여 정보를 업데이트 하고, 엔드포인트 정보도 같이 업데이트됩니다.
+
+그리고 `kube-proxy`는 API 서버로부터 변경된 정보를 가져와 iptables 목록을 업데이트 합니다.
+
+이후 파드가 없는 노드로 요청이 온 경우, kube-proxy가 요청을 처리할 수 있는 파드가 있는 노드로 요청을 전달하게 됩니다.
+
+```
+kubectl patch service traffic-service -p '{"spec": {"externalTrafficPolicy": "Cluster"}}
+```
+서비스의 externalTrafficPolicy 옵션을 Cluster로 변경 했습니다. 그리고 다시 파드가 없는 워커노드로 요정을 보내보겠습니다.
+
+```HTML
+# curl 10.60.160.172:30500
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+<style>
+html { color-scheme: light dark; }
+body { width: 35em; margin: 0 auto;
+font-family: Tahoma, Verdana, Arial, sans-serif; }
+</style>
+</head>
+<body>
+<h1>Welcome to nginx!</h1>
+<p>If you see this page, the nginx web server is successfully installed and
+working. Further configuration is required.</p>
+
+<p>For online documentation and support please refer to
+<a href="http://nginx.org/">nginx.org</a>.<br/>
+Commercial support is available at
+<a href="http://nginx.com/">nginx.com</a>.</p>
+
+<p><em>Thank you for using nginx.</em></p>
+</body>
+</html>
+```
+
+요청이 정상적으로 이루어진 걸 확인할 수 있습니다.
+
 ### 외부 연결을 사용하면서 발생할 수 있는 문제(클라이언트 IP 보존)
 먼저 SNAT(Source Network Address Translation)은 네트워크 트래픽의 소스 IP주소를 다른 IP주소로 변환하는 기술이다.
 외부의 요청이 온 경우, 노드의 kube-proxy가 서비스의 파드로 요청을 전달한다. 이 때 요청의 소스 IP가 SNAT에 의해 노드의 IP주소로 변경한다.

@@ -285,5 +285,34 @@ kubectl rollout undo deployment <nginx-deployment>
 kubectl rollout undo deployment <nginx-deployment> --to-revision=2
 ```
 
+### 디플로이먼트 스케일 아웃
+디플로이먼트는 스케일링으로 파드의 수를 변경할 수 있습니다.
 
+```
+kubectl scale deployment nginx-deployment --replicas=8
+
+# 디플로이먼트
+kubectl.exe get deploy nginx-deployment
+NAME               READY   UP-TO-DATE   AVAILABLE   AGE
+nginx-deployment   8/8     8            8           141m
+
+# 레플리카셋
+NAME                         DESIRED   CURRENT   READY   AGE
+nginx-deployment-74b6b979f   8         8         8       96m
+
+# 파드
+NAME                               READY   STATUS    RESTARTS   AGE
+nginx-deployment-74b6b979f-7s8kr   1/1     Running   0          4m1s
+nginx-deployment-74b6b979f-b5djt   1/1     Running   0          4m1s
+nginx-deployment-74b6b979f-cvxc7   1/1     Running   0          4m1s
+nginx-deployment-74b6b979f-d42xc   1/1     Running   0          7m35s
+nginx-deployment-74b6b979f-kmd64   1/1     Running   0          7m38s
+nginx-deployment-74b6b979f-pml8w   1/1     Running   0          4m1s
+nginx-deployment-74b6b979f-qpg2g   1/1     Running   0          7m37s
+nginx-deployment-74b6b979f-v8rxl   1/1     Running   0          4m1s
+```
+
+파드의 개수가 8개로 늘어난걸 확인할 수 있습니다.
+
+만약 스케일링 중 리소스가 부족하여 새로 파드를 생성할 수 없는 경우, 새로 생성될 파드들은 `pending` 상태로 남게되며, 리소스가 확보될 때 까지 주기적으로 파드를 생성하려고 시도합니다.
 

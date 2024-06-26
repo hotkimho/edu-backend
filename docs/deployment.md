@@ -316,3 +316,53 @@ nginx-deployment-74b6b979f-v8rxl   1/1     Running   0          4m1s
 
 만약 스케일링 중 리소스가 부족하여 새로 파드를 생성할 수 없는 경우, 새로 생성될 파드들은 `pending` 상태로 남게되며, 리소스가 확보될 때 까지 주기적으로 파드를 생성하려고 시도합니다.
 
+### 디플로이먼트 상태
+디플로이먼트는 라이프사이클 동안 다양한 상태로 전환됩니다.
+
+1. 진행중
+   
+디플로이먼트 상태가 진행중인 경우 다음중 하나를 수행하고 있습니다.
+- 새 레플리카셋 생성
+- 기존 레플리카셋 스케일링
+- 파드가 새롭게 생성되어 준비 상태로 변환
+
+디플로이먼트가 진행중일 때, `.status.condition`에는 다음과 같은 컨디션이 추가됩니다.
+
+```
+type: Progressing
+status: "True"
+reason: NewReplicaSetCreated | FoundNewReplicaSet | ReplicaSetUpdated
+```
+
+2. 진행 완료
+
+디플로이먼트가 완료 상태가 되기 위한 조건은 다음과 같습니다.
+- 모든 레플리카가 지정된 최신 버전으로 업데이트됨
+- 모든 레플리카가 사용할 수 있음
+- 이전 복제본이 실행되지 않음
+
+디플로이먼트가 완료되면 `.status.condition`에 다음과 같은 컨디션이 추가됩니다.
+```
+type: Progressing
+status: "True"
+reason: NewReplicaSetAvailable
+```
+
+실제 조회한 경우 아래와 같이 나옵니다.
+```YAML
+status:
+  conditions:
+    message: ReplicaSet "nginx-deployment-74b6b979f" has successfully progressed.
+    reason: NewReplicaSetAvailable
+    status: "True"
+    type: Progressing
+```
+
+3. 실패
+디플로이먼트가 실패 상태가 될 수 있는 요인은 아래와 같습니다.
+- 할당량 부족
+- 준비성 프로브(readiness probe)의 실패
+- 이미지 풀 에러
+- 애플리케이션 런타임의 잘못된 구성
+
+디플로이먼트 컨트롤러는 지수 백오프 방식으로 다시 재시도 요청을 하며, `spec.progressDeadlineSeconds`(기본 10분) 시간이 지나면 디플로이먼트가 실패 상태로 롤아웃을 중지합니다.

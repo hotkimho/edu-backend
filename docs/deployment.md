@@ -366,3 +366,232 @@ status:
 - 애플리케이션 런타임의 잘못된 구성
 
 디플로이먼트 컨트롤러는 지수 백오프 방식으로 다시 재시도 요청을 하며, `spec.progressDeadlineSeconds`(기본 10분) 시간이 지나면 디플로이먼트가 실패 상태로 롤아웃을 중지합니다.
+
+### 디플로이먼트 배포 전략
+쿠버네티스 디플로이먼트 배포 전략은 여러 가지가 있으며, 각 전략은 `애플리케이션을 중단 없이 또는 최소한의 중단으로 업데이트할 수 있도록` 도움을 줍니다. 주요 배포 전략으론 롤링 업데이트, 블루 그린, 카나리 배포가 있습니다.
+
+1. 롤링 업데이트
+
+롤링 업데이트는 쿠버네티스의 기본 배포 전략입니다.
+
+새 버전의 파드를 점진적으로 배포하고, 기존 파드를 하나씩 교체하는 방식으로 진행합니다.
+
+![alt text](./images/rolling-update.png)
+
+동작 방식은 다음과 같습니다.
+1. 새로운 파드 생성
+2. 기존 파드 삭제
+3. 위 과정을 반복합니다.
+
+장점
+- 새로운 버전이 생성된 후, 과거 버전의 파드가 삭제되므로 서비스의 중단이 없습니다.
+- 업데이트를 진행하며 배포를 계속를 진행할 수 있습니다.
+- 설정된 레플리카를 초과하는 파드의 수가 일시적으로 생성될 수 있습니다.
+
+단점
+- 새로운 버전과 과거 버전이 둘 다 요청됩니다.
+- 이전 버전과 호환되지 않으면 배포할 수 없습니다.
+
+```YAML
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+spec:
+  replicas: 10
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 2
+      maxSurge: 3
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.16.1
+```
+
+- spec
+  - strategy
+    - type: RollingUpdate
+      - 배포 전략을 설정합니다.
+    - rollingUpdate
+      - maxUnavailable:2 (기본값 25%)
+        - 롤링업데이트 프로세스 중 사용할 수 없는 최대 파드의 수 입니다.
+        - `동시에 삭제할 수 있는 파드의 최대 개수`를 의미합니다.
+        - 정수 또는 비율을 입력합니다. ex) 3 or 20%
+      - maxSurge
+        - 롤링업데이트 중 추가로 생성할 수 있는 최대 파드의 수 (기본값 25%)
+        - 정수 또는 비율을 입력합니다. ex) 3 or 20%
+
+실제 실행한 이벤트 입니다.
+```
+Events:
+  Type    Reason             Age                From                   Message
+  ----    ------             ----               ----                   -------
+  Normal  ScalingReplicaSet  115s               deployment-controller  Scaled up replica set nginx-deployment-65b96545dd to 10
+  Normal  ScalingReplicaSet  68s                deployment-controller  Scaled up replica set nginx-deployment-5fbbcd4996 to 3
+  Normal  ScalingReplicaSet  68s                deployment-controller  Scaled down replica set nginx-deployment-65b96545dd to 8 from 10
+  Normal  ScalingReplicaSet  68s                deployment-controller  Scaled up replica set nginx-deployment-5fbbcd4996 to 5 from 3
+  Normal  ScalingReplicaSet  39s                deployment-controller  Scaled down replica set nginx-deployment-65b96545dd to 7 from 8
+  Normal  ScalingReplicaSet  39s                deployment-controller  Scaled up replica set nginx-deployment-5fbbcd4996 to 6 from 5
+  Normal  ScalingReplicaSet  38s                deployment-controller  Scaled down replica set nginx-deployment-65b96545dd to 6 from 7
+  Normal  ScalingReplicaSet  38s                deployment-controller  Scaled up replica set nginx-deployment-5fbbcd4996 to 7 from 6
+  Normal  ScalingReplicaSet  36s                deployment-controller  Scaled down replica set nginx-deployment-65b96545dd to 5 from 6
+  Normal  ScalingReplicaSet  12s (x8 over 36s)  deployment-controller  (combined from similar events): Scaled down replica set nginx-deployment-65b96545dd to 0 from 1
+  ```
+  
+  동작은 다음과 같습니다.
+- 첫 번째 동작
+  - 새로운 레플리카셋이 3개의 파드로 확장
+  - 기존 레플리카셋 8개로 축소
+- 두 번째 동작
+  - 새로운 레플리카셋 5개로 확장
+  - 기존 레플리카셋 7개로 축소
+- 세 번째 동작
+  - 새로운 레플리카셋 6개로 확장
+  - 기존 레플리카셋 6개로 축소
+- 이후 동작
+  - 새로운 레플리카셋 1개씩 확장
+  - 기존 레플리카셋 1개씩 축소
+
+과정으로 진행된 이벤트를 확인할 수 있습니다.
+
+2. 블루/그린 배포
+
+블루 그린 배포는 두개의 환경(기존, 새로운 버전)을 사용하여 배포하는 전략입니다.
+
+현재 활성화된 버전 블루(기존) 환경에 배포되어 있고, 그린(새로운 버전) 환경에 배포가 된 후 요청을 그린 쪽으로 전환합니다. 
+
+![alt text](images/blue-green.png)
+
+동작 방식
+1. 블루 환경: 현재 실행중인 버전이 배포된 환경입니다.
+2. 그린 환경: 새로운 버전의 버전이 배포된 환경입니다.
+3. 서비스 전환: 트래픽을 블루 환경에서 그린 환경으로 전환합니다.
+
+장점
+- 서비스의 중단이 없습니다.
+- 문제가 생긴 경우 롤백을 빠르게 할 수 있습니다.
+- 새롭게 배포된 그린환경에 대해 테스트 등 안정적인 버전인지 확인할 수 있습니다.
+단점
+- 두 개의 배포 환경을 가지므로 2배의 리소스가 필요합니다.
+
+```YAML
+# 블루 디플로이먼트
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment-blue
+  labels:
+    app: nginx
+    version: blue
+spec:
+  replicas: 10
+  selector:
+    matchLabels:
+      app: nginx
+      version: blue
+  template:
+    metadata:
+      labels:
+        app: nginx
+        version: blue
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.16.1
+--
+# 그린 디플로이먼트
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment-green
+  labels:
+    app: nginx
+    version: green
+spec:
+  replicas: 10
+  selector:
+    matchLabels:
+      app: nginx
+      version: green
+  template:
+    metadata:
+      labels:
+        app: nginx
+        version: green
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.17.0
+--
+# 서비스 (블루 -> 그린 전환)
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+spec:
+  selector:
+    app: nginx
+    version: blue
+  ports:
+  - port: 80
+    targetPort: 80
+```
+
+배포 과정
+1. 블루 환경 배포 및 서비스 배포
+2. 그린 환경 배포
+3. 서비스의 셀렉터 `version:blue`를 green으로 수정하여 트래픽이 그린으로 가도록 변경
+4. 필요 시 롤백
+
+```
+# 디플로이먼트
+NAME                     READY   UP-TO-DATE   AVAILABLE   AGE
+nginx-deployment-blue    10/10   10           10          3m50s
+nginx-deployment-green   10/10   10           10          3m47s
+
+# 레플리카셋
+NAME                                DESIRED   CURRENT   READY   AGE
+nginx-deployment-blue-65dd6789db    10        10        10      4m11s
+nginx-deployment-green-6465f5897c   10        10        10      4m8s
+
+# 파드
+NAME                                      READY   STATUS    RESTARTS   AGE     IP               NODE               NOMINATED NODE   READINESS GATES
+nginx-deployment-blue-65dd6789db-5k79g    1/1     Running   0          7m35s   172.32.146.118   hkim-host-master   <none>           <none>
+nginx-deployment-blue-65dd6789db-79qnc    1/1     Running   0          7m35s   172.32.103.57    hkim-host-node     <none>           <none>
+nginx-deployment-blue-65dd6789db-84tb6    1/1     Running   0          7m35s   172.32.103.13    hkim-host-node     <none>           <none>
+nginx-deployment-blue-65dd6789db-k4rl8    1/1     Running   0          7m35s   172.32.146.97    hkim-host-master   <none>           <none>
+nginx-deployment-blue-65dd6789db-mz4nx    1/1     Running   0          7m35s   172.32.146.82    hkim-host-master   <none>           <none>
+nginx-deployment-green-6465f5897c-8nw8q   1/1     Running   0          7m32s   172.32.146.94    hkim-host-master   <none>           <none>
+nginx-deployment-green-6465f5897c-8rpr9   1/1     Running   0          7m32s   172.32.103.56    hkim-host-node     <none>           <none>
+nginx-deployment-green-6465f5897c-9nv6c   1/1     Running   0          7m32s   172.32.146.114   hkim-host-master   <none>           <none>
+nginx-deployment-green-6465f5897c-f5mdl   1/1     Running   0          7m32s   172.32.103.46    hkim-host-node     <none>           <none>
+nginx-deployment-green-6465f5897c-fpl5m   1/1     Running   0          7m32s   172.32.103.55    hkim-host-node     <none>           <none>
+
+# 서비스
+NAME                  TYPE           CLUSTER-IP       EXTERNAL-IP   PORT(S)                  AGE 
+nginx-service         ClusterIP      10.97.195.48     <none>        80/TCP                   17s 
+
+# 엔드포인트
+NAME                  ENDPOINTS                                                        AGE
+nginx-service         172.32.103.12:80,172.32.103.13:80,172.32.103.3:80 + 7 more...    116s
+```
+
+현재 서비스는 블루로 되어 있습니다.
+```
+kubectl patch service nginx-service -p '{"spec":{"selector":{"app":"nginx","version":"green"}}}'
+```
+명령을 통해 `version:green`으로 서비스의 셀렉터를 변경합니다.
+
+```
+# 엔드포인트
+NAME                  ENDPOINTS                                                        AGE
+nginx-service         172.32.103.46:80,172.32.103.55:80,172.32.103.56:80 + 7 more...   2m56s
+```
+
+ip를 보니 green에 `172.32.103.55`가 있습니다. 그린쪽으로 서비스가 변경된 걸 확인할 수 있습니다.

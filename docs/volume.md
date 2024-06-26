@@ -492,7 +492,6 @@ PV의 accessModes에서 실패하는 케이스를 만들어 확인해봅니다.
 # 마스터 노드와 워커노드에 노드 셀렉팅용 레이블 추가
 
 kubectl label nodes hkim-host-master nodetype=master
-
 kubectl label nodes hkim-host-node notetype=node
 ```
 
@@ -505,9 +504,11 @@ kubectl label nodes hkim-host-node notetype=node
 
 공식문서를 보면
 ```
-접근 모드가 ReadWriteOnce, ReadOnlyMany 혹은 ReadWriteMany로 지정된 경우에도 접근 모드는 볼륨에 제약 조건을 설정하지 않는다. 예를 들어 퍼시스턴트볼륨이 ReadOnlyMany로 생성되었다 하더라도, 해당 퍼시스턴트 볼륨이 읽기 전용이라는 것을 보장하지 않는다. 만약 접근 모드가 ReadWriteOncePod로 지정된 경우, 볼륨에 제한이 설정되어 단일 파드에만 마운트 할 수 있게 된다.
+접근 모드가 ReadWriteOnce, ReadOnlyMany 혹은 ReadWriteMany로 지정된 경우에도 접근 모드는 볼륨에 제약 조건을 설정하지 않는다.
+예를 들어 퍼시스턴트볼륨이 ReadOnlyMany로 생성되었다 하더라도, 해당 퍼시스턴트 볼륨이 읽기 전용이라는 것을 보장하지 않는다.
+만약 접근 모드가 ReadWriteOncePod로 지정된 경우, 볼륨에 제한이 설정되어 단일 파드에만 마운트 할 수 있게 된다.
 ```
-이렇게 명시되어 있고, NFS의 경우 (ReadWriteOnce, ReadOnlyMany 혹은 ReadWriteMany)에 대해 읽기 전용을 보장하지 않습니다. 이런 경우 `accessModes`의 역할을 어떤 방식으로 사용하는지 궁금합니다. 
+NFS의 경우 (ReadWriteOnce, ReadOnlyMany 혹은 ReadWriteMany)에 대해 읽기 전용을 보장하지 않습니다. 이렇게 명시되어 있습니다. 이런 경우 `accessModes`의 역할을 어떤 방식으로 사용하는지 궁금합니다. 
 
 예시 매니페스트 파일입니다.
 ```YAML
@@ -590,7 +591,8 @@ nfs-client-2                  0/1     Pending     0                43m     <none
 
 이 후, `nfs-client-2` 파드를 생성하면 pending 상태가 되어 있습니다. 이벤트를 조회해보면 아래와 같은 에러 문구가 나옵니다.
 ```
-0/2 nodes are available: 2 node has pod using PersistentVolumeClaim with the same name and ReadWriteOncePod access mode. preemption: 0/2 nodes are available: 2 No preemption victims found for incoming pod..
+0/2 nodes are available: 2 node has pod using PersistentVolumeClaim with the same name and ReadWriteOncePod access mode.
+ preemption: 0/2 nodes are available: 2 No preemption victims found for incoming pod..
 ```
 `ReadWriteOncePod` 모드인 상황에서 이미 1개의 파드가 선점되어 다른 파드에서 마운트를 수 없는걸 확인 할 수 있습니다.
 

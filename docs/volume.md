@@ -484,6 +484,115 @@ PVC Status
 - Lost
   - 바인딩된 PV를 더 이상 찾을 수 없는 상태
 
+PV의 accessModes에서 실패하는 케이스를 만들어 확인해봅니다.
+
+```
+사용한 예제는 위에 정의된 매니페스트 파일과 동일하며, nfs 서버 주소, 경로만 달라집니다.
+
+# 마스터 노드와 워커노드에 노드 셀렉팅용 레이블 추가
+
+kubectl label nodes hkim-host-master nodetype=master
+
+kubectl label nodes hkim-host-node notetype=node
+```
+
+- ReadWriteOnce
+  - 하나의 노드에서 해당 볼륨이 읽기/쓰기로 마운트 될 수 있습니다.
+
+실제 실습을 해보니 `하나의 노드에서 해당 볼륨이 읽기/쓰기`로 마운트 되어야 하는데 마스터, 워커 노드 둘 다 마운트가 되었고 볼륨에 파일을 읽기/쓰기할 수 있었습니다.
+
+`ReadOnlyMany` 옵션도 읽기 전용으로 마운트해도 볼륨에 대해 쓰기할 수 있었습니다.
+
+공식문서를 보면
+```
+접근 모드가 ReadWriteOnce, ReadOnlyMany 혹은 ReadWriteMany로 지정된 경우에도 접근 모드는 볼륨에 제약 조건을 설정하지 않는다. 예를 들어 퍼시스턴트볼륨이 ReadOnlyMany로 생성되었다 하더라도, 해당 퍼시스턴트 볼륨이 읽기 전용이라는 것을 보장하지 않는다. 만약 접근 모드가 ReadWriteOncePod로 지정된 경우, 볼륨에 제한이 설정되어 단일 파드에만 마운트 할 수 있게 된다.
+```
+이렇게 명시되어 있고, NFS의 경우 (ReadWriteOnce, ReadOnlyMany 혹은 ReadWriteMany)에 대해 읽기 전용을 보장하지 않습니다. 이런 경우 `accessModes`의 역할을 어떤 방식으로 사용하는지 궁금합니다. 
+
+예시 매니페스트 파일입니다.
+```YAML
+## PV
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-nfs
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+--
+# PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-nfs
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+--
+# POD(마스터 노드)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nfs-client-m
+spec:
+  nodeSelector:
+    nodetype: master
+  containers:
+  - name: app
+    image: busybox
+    volumeMounts:
+    - mountPath: "/mnt"
+      name: nfs-storage
+    command: [ "sh", "-c", "touch /mnt/masternode && sleep 36000" ]
+  volumes:
+  - name: nfs-storage
+    persistentVolumeClaim:
+      claimName: pvc-nfs
+  
+--
+# POD(워커 노드)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nfs-client-n
+spec:
+  nodeSelector:
+    nodetype: node
+  containers:
+  - name: app
+    image: busybox
+    volumeMounts:
+    - mountPath: "/mnt"
+      name: nfs-storage
+    command: [ "sh", "-c", "touch /mnt/workernode && sleep 36000" ]
+  volumes:
+  - name: nfs-storage
+    persistentVolumeClaim:
+      claimName: pvc-nfs
+```
+
+- ReadWriteOncePod
+  - 볼륨이 단일 파드에서 읽기/쓰기로 마운트 될 수 있습니다.(클러스터에서 하나의 파드만 해당 읽기/쓰기할 수 있습니다.)
+```
+# 파드 조회
+NAME                          READY   STATUS      RESTARTS         AGE     IP               NODE               NOMINATED NODE   READINESS GATES
+nfs-client-1                  1/1     Running     0                44m     172.32.146.103   hkim-host-master   <none>           <none>
+nfs-client-2                  0/1     Pending     0                43m     <none>           <none>             <none>           <none>
+```
+`nfs-client-1` 파드가 생성이 되고 볼륨이 마운트되어 정상적으로 running 상태가 되었습니다.
+
+이 후, `nfs-client-2` 파드를 생성하면 pending 상태가 되어 있습니다. 이벤트를 조회해보면 아래와 같은 에러 문구가 나옵니다.
+```
+0/2 nodes are available: 2 node has pod using PersistentVolumeClaim with the same name and ReadWriteOncePod access mode. preemption: 0/2 nodes are available: 2 No preemption victims found for incoming pod..
+```
+`ReadWriteOncePod` 모드인 상황에서 이미 1개의 파드가 선점되어 다른 파드에서 마운트를 수 없는걸 확인 할 수 있습니다.
 
 ### 동적 프로비저닝
 퍼시스턴트 볼륨과 퍼시스턴트 볼륨 클레임을 통해 개발자가 내부적으로 별도의 과정없이 스토리지를 사용할 수 있는지 확인했습니다.

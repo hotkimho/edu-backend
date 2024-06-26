@@ -78,6 +78,7 @@ nginx-deployment   3/3     3            3           23s
   - 디플로이먼트에서 최신 상태를 반영하기 위해 업데이트된 파드의 수 입니다.
   - 의도한 레플리카가 3개이고 이 값이 3이면 모든 파드는 최신 상태를 의미합니다.
 - AVAILABLE: 사용자가 사용할 수 있는 애플리케이션 레플리카의 수
+  - 종료 중인 레플리카의 수는 포함하지 않습니다.
 
 ```
 # 레플리카셋 조회
@@ -111,4 +112,100 @@ nginx-deployment-cbdccf466-dq5ft   1/1     Running     0                 116s
 
 디플로이먼트의 `파드 템플릿(.spec.template)이 변경된 경우에만`(레이블 또는 컨테이너 이미지가 변경된 경우) 디플로이먼트의 `롤아웃이 트리거`됩니다. 하지만 `스케일링(레플리카 수 변경) 업데이트는 롤아웃을 트리거 하지 않습`니다.
 
+### 디플로이먼트 업데이트
+
+**1. 롤아웃 및 롤아웃 기록 확인**
+
+```
+# 롤아웃이 트리거됨(파드 템플릿 수정)
+kubectl set image deployment nginx-deployment nginx=nginx:1.16.1
+
+# 롤아웃 상태 확인
+kubectl rollout status deployment <deployment 이름>
+```
+파드 템플릿의 이미지를 수정하면 롤아웃이 트리거됩니다. 위의 명령어를 입력하면 롤아웃이 트리거되며, 실제 실행한 결과입니다.
+
+```
+Waiting for deployment "nginx-deployment" rollout to finish: 1 out of 3 new replicas have been updated...
+Waiting for deployment "nginx-deployment" rollout to finish: 1 out of 3 new replicas have been updated...
+Waiting for deployment "nginx-deployment" rollout to finish: 1 out of 3 new replicas have been updated...
+Waiting for deployment "nginx-deployment" rollout to finish: 2 out of 3 new replicas have been updated...
+Waiting for deployment "nginx-deployment" rollout to finish: 2 out of 3 new replicas have been updated...
+Waiting for deployment "nginx-deployment" rollout to finish: 2 out of 3 new replicas have been updated...
+Waiting for deployment "nginx-deployment" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "nginx-deployment" rollout to finish: 1 old replicas are pending termination...
+deployment "nginx-deployment" successfully rolled out
+```
+3개의 레플리카중 1개씩 천천히 진행하며 완료되었다는 메시지를 확인할 수 있습니다.
+
+```
+Events:
+  Type    Reason             Age    From                   Message
+  ----    ------             ----   ----                   -------
+  Normal  ScalingReplicaSet  49m    deployment-controller  Scaled up replica set nginx-deployment-cbdccf466 to 3
+  Normal  ScalingReplicaSet  3m29s  deployment-controller  Scaled up replica set nginx-deployment-74b6b979f to 1
+  Normal  ScalingReplicaSet  3m17s  deployment-controller  Scaled down replica set nginx-deployment-cbdccf466 to 2 from 3
+  Normal  ScalingReplicaSet  3m17s  deployment-controller  Scaled up replica set nginx-deployment-74b6b979f to 2 from 1
+  Normal  ScalingReplicaSet  3m4s   deployment-controller  Scaled down replica set nginx-deployment-cbdccf466 to 1 from 2
+  Normal  ScalingReplicaSet  3m4s   deployment-controller  Scaled up replica set nginx-deployment-74b6b979f to 3 from 2
+  Normal  ScalingReplicaSet  3m3s   deployment-controller  Scaled down replica set nginx-deployment-cbdccf466 to 0 from 1
+```
+디플로이먼트의 이벤트를 통해서도 확인할 수 있습니다.
+
+롤아웃에 대한 기록을 조회하려면 `kubectl rollout history` 명령어를 사용합니다.
+```
+#kubectl rollout history deployment <deployment 이름>
+deployment.apps/nginx-deployment
+REVISION  CHANGE-CAUSE
+1         <none>
+2         <none>
+```
+- REVISION: 디플로이먼트의 변경 버전입니다. 업데이트될 때 마다 1씩 증가합니다.
+- CHANGE-CAUSE: 디플로이먼트 변경 원인을 설명하는 주석입니다.
+  - kubernetes.io/change-cause="업데이트 내용" 이렇게 명시하고 롤아웃을 진행하면 내용이 기록됩니다.
+
+```
+kubectl annotate deployment nginx-deployment kubernetes.io/change-cause="업데이트 내용"
+REVISION  CHANGE-CAUSE
+11        nginx 1.15.1
+12        nginx 1.17.1
+```
+직접 어노테이션을 추가하여 CHANGE-CAUSE에 기록되는지 확인한 결과입니다.
+
+```
+deployment.apps/nginx-deployment with revision #12
+Pod Template:
+  Labels:       app=nginx
+        pod-template-hash=5bb75b59c4
+  Annotations:  kubernetes.io/change-cause: nginx 1.17.1
+  Containers:
+   nginx:
+    Image:      nginx:1.17.1
+    Port:       80/TCP
+    Host Port:  0/TCP
+    Environment:        <none>
+    Mounts:     <none>
+  Volumes:      <none>
+```
+`kubectl rollout history deploy nginx-deployment --revision=<revision 값>` 명령을 수행하여 리비전 별 상세한 값을 확인할 수 있습니다.
+
+2. **롤아웃 시, 레플리카셋**
+
+디플로이먼트가 롤아웃을 진행하면 새 레플리카셋을 생성하여 레플리카 수 만큼 레플리카를 `스케일 업` 하고, 이전 레플리카셋을 0개로 `스케일 다운`합니다.
+
+```
+kubectl get rs
+NAME                          DESIRED   CURRENT   READY   AGE
+nginx-deployment-55865595d4   0         0         0       14m
+nginx-deployment-5bb75b59c4   3         3         3       25m
+nginx-deployment-5cf6fcbc8f   0         0         0       14m
+nginx-deployment-6987dfc6bf   0         0         0       17m
+nginx-deployment-74b6b979f    0         0         0       32m
+nginx-deployment-cbdccf466    0         0         0       77m
+```
+롤아웃되면 레플리카셋이 새로 생기고 기존 레플리카는 0으로 스케일 다운됩니다.
+
+그리고 이전 레플리카셋은 `.spec.temterminationGracePeriodSeconds` 값을 설정하여 유지할 리비전, 레플리카셋 수를 설정할 수 있습니다.
+
+이 값은 생략할 시 기본 10으로 설정되며, 설정된 값 만큼 최근의 정보를 저장합니다. 만약 11번째 롤아웃이 진행되면 1 번째로 지정한 리비전, 레플리카셋은 삭제됩니다.
 

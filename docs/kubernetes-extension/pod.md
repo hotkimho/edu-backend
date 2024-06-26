@@ -1351,6 +1351,75 @@ spec:
 - memory.max: 메모리 제한값(1024MiB) 최대 사용 가능 메모리
 이 컨테이너는 512MiB 메모리를 최소로 보장하며 1024MiB 사용량을 넘는 시도가 있으면 OOM이 발생하여 해당 컨테이너의 프로세스 중 하나를 종료합니다.
 
+실제로 `1024Mi`로 리소스를 제한하고 더 많은 메모리를 할당해보겠습니다.
+
+```Python
+import time
+
+def allocate_memory(size_in_mb):
+    size_in_bytes = size_in_mb * 1024 * 1024
+    memory_holder = bytearray(size_in_bytes)
+    print(f"Allocated {size_in_mb} MB of memory.")
+    time.sleep(60)  # Keep the memory allocated for 60 seconds
+
+if __name__ == "__main__":
+    size_in_mb = int(input("Enter the amount of memory to allocate in MB: "))
+    allocate_memory(size_in_mb)
+```
+입력받은 숫자 만큼의 <n>mb를 할당받는 스크립트 입니다.
+
+```YAML
+apiVersion: v1
+kind: Pod
+metadata:
+  name: memory-hog
+spec:
+  containers:
+  - name: memory-hog
+    image: python:3.9
+    command: ["python", "-c", "import time; time.sleep(36000)"]
+    resources:
+      limits:
+        memory: "1024Mi"
+      requests:
+        memory: "512Mi"
+```
+`1024Mi`만큼 리소스가 제한된 파드입니다.
+
+```
+#kubectl top pod memory-hog
+NAME         CPU(cores)   MEMORY(bytes)   
+memory-hog   1m           11Mi 
+```
+현재 사용중인 메모리는 `11Mi`입니다. 
+
+![alt text](./images/memory-test.png)
+
+`1000MB`를 할당한 하고 다시 메모리 사용량을 조회한 결과입니다.
+```
+# kubectl top pod memory-hog
+NAME         CPU(cores)   MEMORY(bytes)   
+memory-hog   27m          1016Mi
+```
+
+`1024Mi`를 넘지 않았고, 정상적으로 스크립트가 동작된 걸 확인할 수 있습니다. 여기서 조금 더 많은 메모리를 할당해보겠습니다.
+
+![alt text](./images/memory-test-2.png)
+
+`1024Mi`를 넘는 메모리를 할당하자 프로세스가 강제로 종료되었습니다.
+
+컨테이너의 커널이 메모리 부족(OOM)이 활성화 되고 메모리를 할당 받으려고 했던 프로세스(이 예제에서는 1개) 중 하나를 종료한 걸 확인할 수 있었습니다.
+
+```
+쿠버네티스 공식문서에 의하면 CPU 제한을 초과하는 요청이 온 경우, 초과하는 요청을 대기 상태로 만듭니다(다음 스케줄링 까지 대기) 이 후 다른 작업이 완료 되면 대기 상태에 있던 작업을 이어서 처리하게 됩니다.
+
+CPU에 부하를 주어 CPU 사용량을 테스트 했을 때, 일정 사용량을 넘지 않았습니다. 그리고 부하를 주는 프로그램의 로그 출력이 잠시나마 멈췄습니다.
+
+이런 상황으로 봤을 때 부하(CPU 제한)를 초과하는 요청이 왔을 때, 대기 상태가 되었고 이 때 부하 프로그램의 로그가 잠시 멈춘게 아닐까 싶습니다.
+
+이런 상황으로 봤을 때 공식 문서에 나온대로 동작이 실행됐다고 봐도 될 것같습니다.
+```
+
 ## 쿠버네티스
 ### kubectl get
 쿠버네티스는 `kubectl` CLI 도구를 통해 쿠버네티스 API와 소통합니다. 그 중 `kubectl get ...` 명령은 쿠버네티스의 오브젝트를 조회하는 명령어로 굉장히 많이 사용됩니다.

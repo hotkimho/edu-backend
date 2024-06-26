@@ -77,6 +77,7 @@ nginx-deployment   3/3     3            3           23s
 - UP-TO-DATE: 의도한 상태를 얻기 위해 업데이트된 레플리카의 수
   - 디플로이먼트에서 최신 상태를 반영하기 위해 업데이트된 파드의 수 입니다.
   - 의도한 레플리카가 3개이고 이 값이 3이면 모든 파드는 최신 상태를 의미합니다.
+  - 최신 상태를 반영하는 레플리카의 수지만 해당 레플리카가 준비 상태가 아니어도 최신 템플릿이 사용되면 카운트 됩니다.
 - AVAILABLE: 사용자가 사용할 수 있는 애플리케이션 레플리카의 수
   - 종료 중인 레플리카의 수는 포함하지 않습니다.
 
@@ -208,4 +209,81 @@ nginx-deployment-cbdccf466    0         0         0       77m
 그리고 이전 레플리카셋은 `.spec.temterminationGracePeriodSeconds` 값을 설정하여 유지할 리비전, 레플리카셋 수를 설정할 수 있습니다.
 
 이 값은 생략할 시 기본 10으로 설정되며, 설정된 값 만큼 최근의 정보를 저장합니다. 만약 11번째 롤아웃이 진행되면 1 번째로 지정한 리비전, 레플리카셋은 삭제됩니다.
+
+### 디플로이먼트 롤백
+디플로이먼트를 롤아웃 중에 문제가 발생하면, 이전 상태로 되돌리고 싶을 때 디플로이먼트를 롤백할 수 있습니다. 
+
+임의로 잘못된 이미지로 롤아웃을 진행해보겠습니다.
+```
+kubectl set image deployment nginx-deployment nginx=nginx:1.161 
+```
+실행하고 나서 임플로이먼트 파드, 레플리카셋 조회를 합니다.
+```
+# 디플로이먼트
+NAME               READY   UP-TO-DATE   AVAILABLE   AGE
+nginx-deployment   3/3     1            3           98m
+
+# 레플리카셋
+NAME                          DESIRED   CURRENT   READY   AGE
+nginx-deployment-5bb75b59c4   3         3         3       47m
+nginx-deployment-c87494649    1         1         0       5m4s
+
+# 파드
+NAME                                READY   STATUS             RESTARTS   AGE
+nginx-deployment-5bb75b59c4-76cd5   1/1     Running            0          4m49s
+nginx-deployment-5bb75b59c4-hwhlq   1/1     Running            0          4m49s
+nginx-deployment-5bb75b59c4-kkdwz   1/1     Running            0          4m49s
+nginx-deployment-c87494649-db7k7    0/1     ImagePullBackOff   0          4m49s
+
+# 롤아웃 상태
+Waiting for deployment "nginx-deployment" rollout to finish: 1 out of 3 new replicas have been updated...
+```
+현재 상황 롤아웃 중 잘못된 이미지로 인하여 파드가 계속 실패 상태(ImagePullBackOff)에 있습니다.
+
+디플로이먼트
+- READY: 3/3
+  - 현재 3개의 파드(기존)가 준비상태에 있으며, 의도한 파드 수 도 3개입니다.
+- UP-TO-DATE: 1
+  - 최신 상태로 업데이트 된 파드의 수는 1개입니다. 새롭게 생긴 레플리카셋에 의해 관리가 되는 파드로 실패 상태에 있지만 최신 템플릿을 사용하여 카운트됩니다.
+- AVAILABLE: 3
+  - 사용 가능한 파드의 수 입니다.
+
+레플리카셋
+- nginx-deployment-5bb75b59c4(이전 레플리카셋)
+  - DESIRED, CURRENT, READY 모두 3개로 정상동작 하고 있습니다.
+- nginx-deployment-c87494649(새롭게 생긴 레플리카셋)
+  - DESIRED: 1
+    - 1개의 파드로 설정되어 있습니다. 롤아웃을 진행하며, 스케일 업을 하지만 파드에 문제가 있어서 진행되지 않고 있습니다.
+  - CURRENT: 1
+    - 현재 동작중인 실행중인 레플리카 수는 1개입니다.
+  - READY: 0
+    - 사용자의 사용할 수 있는 레플리카가 없으므로 0개입니다.
+
+파드
+- nginx-deployment-5bb75b59c4(이전)
+  - 이전 파드 3개가 정상적으로 실행되고 있습니다.
+- nginx-deployment-c87494649(새롭게 생긴 파드)
+  - 이미지에 문제가 있어 컨테이너가 시작되지 않고 있습니다.
+  
+이 과정에서 `디플로이먼트 컨트롤러는 새로운 파드를 생성하는 과정에서 문제가 발생하면 이를 감지하고, 잘못된 롤아웃을 자동으로 중지`합니다.
+
+문제라고 판단되는 요인은 다음과 같습니다.
+- 할당량 부족
+- 준비성 프로브(readiness probe)의 실패
+- 이미지 풀 에러
+- 애플리케이션 런타임의 잘못된 구성
+
+디플로이먼트 컨트롤러는 지수 백오프 방식으로 다시 재시도 요청을 하며, `spec.progressDeadlineSeconds`(기본 10분) 시간이 지나면 롤아웃을 실패로 간주하고 중지합니다.
+
+
+이전 버전으로 롤백하는 방법은 다음과 같습니다. 롤백도 rollout history에 기록됩니다.
+```
+# 현재 롤아웃 취소 및 이전 버전으로 롤백
+kubectl rollout undo deployment <nginx-deployment>
+
+# 특정 리비전으로 롤백
+kubectl rollout undo deployment <nginx-deployment> --to-revision=2
+```
+
+
 

@@ -624,18 +624,18 @@ __필요한 패키지는 설치가 되어있다고 가정합니다(실제 환경
 
 
 1. 스토리지 클래스 생성
-```
+```YAML
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: nfs-storage
-provisioner: nfs-subdir-external-provisioner
+provisioner: accordion-data-provisioner # 아코디언 프로비지너
 parameters:
-  path: /var/nfs
-  server: 192.168.49.2
+  path: /nfs/data
+  server: <서버 주소>
 ```
-
 `provisioner` 의 값은 실제 `aws-ebs`, `gce-pd`같은 서비스에서 제공하는 프로비지너 플러그인입니다.
+매니페스트 파일은 사내에서 사용하는 아코디언 프로비지너를 사용하였습니다.
 
 1. pvc 생성
 ```
@@ -675,3 +675,16 @@ spec:
 
 pvc 요청이 오면 nfs-storage 클래스를 참조하여 실제 pv가 생성 및 할당이 됩니다.
 
+결과를 확인해봅시다.
+```
+# PV
+NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS        CLAIM                                                                                                 STORAGECLASS        REASON   AGE
+pvc-f20df940-27f2-473a-988e-1bf308637fe0   1Gi        RWX            Delete           Bound         default/dy-nfs-pvc                                                                                    nfs-storage                  10s
+```
+
+```
+# PVC
+NAME         STATUS        VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+dy-nfs-pvc   Bound         pvc-f20df940-27f2-473a-988e-1bf308637fe0   1Gi        RWX            nfs-storage    2m27s
+```
+아코디언 프로비지너를 통해 동적으로 PV생성을 확인할 수 있었습니다.

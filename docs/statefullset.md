@@ -229,3 +229,57 @@ PVC, PV는 스테이트풀셋이 삭제되더라도 삭제되지 않습니다. �
 ```
 Warning  FailedScheduling  46s   default-scheduler  0/2 nodes are available: pod has unbound immediate PersistentVolumeClaims. preemption: 0/2 nodes are available: 2 Preemption is not helpful for scheduling..
 ```
+
+### 스테이트풀셋 스케일링
+스테이크풀셋의 스케일링 동작은 다음과 같습니다.
+- N개의 레플리카가 있는 스테이트 풀셋이 파드를 배포할 때 연속해서 0..N-1 순서로 생성됩니다.
+- 파드가 삭제될 때는 역순으로 삭제됩니다.
+- 파드가 생성될 때 모든 선행 파드가 Running 및 Ready 상태여야 합니다. 
+- 파드가 종료될 때 모든 후속 파드가 종료되어야 합니다.
+
+스테이트풀셋은 `pod.Spec.TerminationGracePeriodSeconds` 옵션을 0으로 명시해서는 안됩니다. 이는 권장되는 방법이 아닙니다.
+
+실제 스테이트풀셋이 생성되고 삭제되는 과정을 확인해봅시다.
+
+```
+# replicas=3
+NAME                           READY   STATUS    RESTARTS   AGE
+web-statefulset-0              1/1     Running   0          3s
+web-statefulset-1              0/1     Pending   0          0s
+web-statefulset-1              0/1     Pending   0          0s
+web-statefulset-1              0/1     ContainerCreating   0          0s
+web-statefulset-1              0/1     ContainerCreating   0          1s
+web-statefulset-1              1/1     Running             0          2s
+web-statefulset-2              0/1     Pending             0          0s
+web-statefulset-2              0/1     Pending             0          1s
+web-statefulset-2              0/1     ContainerCreating   0          1s
+web-statefulset-2              0/1     ContainerCreating   0          2s
+web-statefulset-2              1/1     Running             0          3s
+```
+파드를 총 3개 만듭니다. 파드는 0번부터 2번까지 순차적으로 만들어고 이전 파드(모든 파드)가 성공적으로 `Running, READY` 상태가 되면 다음 파드가 만들어지는걸 확인할 수 있습니다.
+
+
+```
+web-statefulset-0              0/1     Terminating   0          84m
+web-statefulset-1              0/1     Terminating   0          84m
+web-statefulset-2              0/1     Terminating   0          83m
+web-statefulset-1              0/1     Terminating   0          84m
+web-statefulset-1              0/1     Terminating   0          84m
+web-statefulset-1              0/1     Terminating   0          84m
+web-statefulset-2              0/1     Terminating   0          83m
+web-statefulset-0              0/1     Terminating   0          84m
+web-statefulset-0              0/1     Terminating   0          84m
+web-statefulset-0              0/1     Terminating   0          84m
+web-statefulset-2              0/1     Terminating   0          83m
+web-statefulset-2              0/1     Terminating   0          83m
+```
+```
+LAST SEEN   TYPE      REASON                   OBJECT                                  MESSAGE
+2m21s       Normal    Killing                  pod/web-statefulset-0                   Stopping container nginx
+2m21s       Normal    Killing                  pod/web-statefulset-1                   Stopping container nginx
+2m21s       Normal    Killing                  pod/web-statefulset-2                   Stopping container nginx
+```
+
+실제 공식 문서에서 스테이트풀셋 파드의 삭제는 역순으로 진행된다고 명시되어 있습니다. 하지만 실제 모니터링이나 이벤트를 확인해보면 순서가 역순으로 되지 않습니다.
+
+실제 역순으로 삭제가 되는지 궁금합니다. 만약 실제 역순으로 삭제가 된다면 로깅이나 이벤트는 왜 제대로 표기가 안 되는지 궁금합니다.

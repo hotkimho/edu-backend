@@ -239,8 +239,9 @@ Warning  FailedScheduling  46s   default-scheduler  0/2 nodes are available: pod
 
 스테이트풀셋은 `pod.Spec.TerminationGracePeriodSeconds` 옵션을 0으로 명시해서는 안됩니다. 이는 권장되는 방법이 아닙니다.
 
-실제 스테이트풀셋이 생성되고 삭제되는 과정을 확인해봅시다.
+0으로 명시하지 않는 이유는 안정성과 신뢰성 때문입니다. 파드가 종료될 때 네트워크 연결 정리, dns 기록 정리 등 애플리케이션이 종료할 때 충분한 시간을 주어야 합니다. 애플리케이션이 즉시 종료되면 예상하지 못한 문제가 발생할 수 있습니다.
 
+실제 스테이트풀셋이 생성되고 삭제되는 과정을 확인해봅시다.
 ```
 # replicas=3
 NAME                           READY   STATUS    RESTARTS   AGE

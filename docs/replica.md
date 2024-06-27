@@ -63,7 +63,6 @@ spec:
 NAME    DESIRED   CURRENT   READY   AGE
 kubia   3         3         3       80s
 ```
-![alt text](image.png)
 
 ![image](./images/detail-replicaset.png)
 `kubectl describe rs <rs-name>` 명령을 통해 레플리카셋에 대한 자세한 정보와 어떤 파드가 만들어졌는지 등 이벤트를 확인할 수 있습니다.

@@ -90,3 +90,174 @@ RBAC 인가 클러스터는 4개의 리소스로 구성됩니다.
   - 관리자가 클러스터 전체에 대한 리소스가 필요한 경우
   - 모니터링 같은 모든 리소스를 필요로 하는 리소스를 사용할 때
 
+### 롤 실습
+2개의 네임스페이스(test-a, test-b)를 만들고 test-b안에 있는 파드에서 test-a에 대한 리소스를 조회해보겠습니다.
+
+```
+# default 서비스어카운트 사용
+
+# 네임스페이스 생성
+kubectl create ns test-a
+kubectl create ns test-a
+
+# 각각 네임스페이스 내에 kube-proxy 서버가 동작되는 파드 실행
+kubectl run test-a-pod --image=luksa/kubectl-proxy -n test-a
+
+kubectl run test-b-pod --image=luksa/kubectl-proxy -n test-b
+```
+
+파드에 접속하게 쿠버네티스 API를 요청해보겠습니다.
+
+`curl localhost:8001/api/v1/namespaces/test-a/services`
+
+test-a 네임스페이스에 있는 서비스를 조회하는 요청입니다.
+```JSON
+
+{
+  "kind": "Status",
+  "apiVersion": "v1",
+  "metadata": {},
+  "status": "Failure",
+  "message": "services is forbidden: User \"system:serviceaccount:test-a:default\" cannot list resource \"services\" in API group \"\" in the namespace \"test-a\"",
+  "reason": "Forbidden",
+  "details": {
+    "kind": "services"
+  },
+  "code": 403
+}
+```
+
+파드가 동일한 네임스페이스에서 실행되지만 API 서버는 권한 문제로 거절당했습니다. 이는 rbac가 동작하기 때문에 그렇습니다.
+
+이제 서비스를 조회할 수 있게 롤을 만들고 바인딩을 해보겠습니다.
+
+```YAML
+# 서비스에 대한 정보를 조회할 수 있는 . 로
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: test-a
+  name: service-reader
+rules:
+- apiGroups: [""]
+  verbs: ["get", "list"]
+  resources: ["services"]
+
+--
+# 위의 롤과 test-a(네임스페이스):default(서비스어카운트) 바인딩
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: test-ns-service
+  namespace: test-a
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: test-a
+roleRef:
+  kind: Role
+  name: service-reader
+  apiGroup: rbac.authorization.k8s.io
+```
+위의 롤과 롤바인딩을 만들고 난후 상세 조회해보면 아래와 같이 나옵니다.
+``` YAML
+# 롤 상세 정보
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: service-reader
+  namespace: test-a
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - get
+  - list
+
+# 롤바인딩 상세 정보
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: test-ns-service
+  namespace: test-a
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: service-reader
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: test-a
+```
+- `test-a` 네임스페이스에 있는 `service` 리소스에 대해 조회 권한이 있는 `service-reader` 이름을 가진 롤
+- `test-a` 네임스페이스의 `default` 서비스어카운트가 `service-read`롤과 바인딩 
+
+그러면 한번 test-a 네임스페이스에서 default 서비스어카운트를 가지는 파드에서 쿠버네티스 API에 요청 해보겠습니다.
+
+`curl localhost:8001/api/v1/namespaces/test-a/services`
+
+```JSON
+{
+  "kind": "ServiceList",
+  "apiVersion": "v1",
+  "metadata": {
+    "resourceVersion": "11202479"
+  },
+  "items": []
+}
+```
+이번엔 조회가 성공하였고 실제 생성된 서비스가 없어서 빈값으로 온걸 확인할 수 있습니다.
+
+롤 바인딩은 하나의 롤만 참조하지만, 여러 주체는 롤에 바인딩 될 수 있습니다.
+
+test-b 네임스페이스의 default 서비스어카운트에 `service-read`롤을 바인딩 해보겠습니다.
+
+롤 바인딩에 아래 내용을 추가합니다.
+```YAML
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: test-a
+- kind: ServiceAccount # 추가된 서비스어카운트
+  name: default
+  namespace: test-b
+```
+
+```YAML
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: test-ns-service
+  namespace: test-a
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: service-reader
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: test-a
+- kind: ServiceAccount
+  name: default
+  namespace: test-b
+```
+해당 롤에 대해 주체를 추가 했습니다.
+
+이제 `test-b` 네임스페이스에 속하고 `default` 서비스어카운트를 가지는 파드내에서 `test-a` 네임스페이스의 서비스 리소스를 조회해보겠습니다.
+
+`curl localhost:8001/api/v1/namespaces/test-a/services`
+
+```JSON
+{
+  "kind": "ServiceList",
+  "apiVersion": "v1",
+  "metadata": {
+    "resourceVersion": "11248842"
+  },
+  "items": []
+}
+```
+
+test-b 네임스페이스에서 test-a 네임스페이스의 서비스 리소스를 가져온 걸 확인할 수 있었습니다.

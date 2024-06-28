@@ -356,3 +356,81 @@ roleRef:
 
 이 그림처럼 `test-a` 네임스페이스에 default 서비스어카운트는 클러스터바인딩을 통해 pv에 대한 접근를 가지는 클러스터롤과 바인딩 되어 있습니다. 그래서 클러스터 수준의 리소스인 PV에 대해 요청(조회) 할 수 있습니다.
 
+### 클러스터롤 실습(URL)
+쿠버네티스 API 서버는 URL에 관한 액세스 권한도 명시적으로 부여해야합니다. 명시하지 않으면 API 서버는 요청을 거부합니다. 
+
+쿠버네티스의 `system:discovery` 클러스터롤은 클러스터에 어떤 리소스가 있는지 탐색할 수 있도록 최소한의 권한을 부여합니다. 여기에 URL 목록을 확인하여 API 서버에 대한 정보(리소스, 엔드포인트)를 탐색하는데 사용됩니다. 
+
+system:discovery 클러스터롤과 클러스터롤바인딩을 확인해보겠습니다.
+```YAML
+# 클러스터롤
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: system:discovery
+rules:
+- nonResourceURLs:
+  - /api
+  - /api/*
+  - /apis
+  - /apis/*
+  - /healthz
+  - /livez
+  - /openapi
+  - /openapi/*
+  - /readyz
+  - /version
+  - /version/
+  verbs:
+  - get
+```
+
+`nonResourceURLs` 옵션을 통해 URL 규칙을 정의할 수 있습니다. 위의 나열된 URL에 한해서 get 요청에 대한 권한을 가지고 있습니다.
+
+```YAML
+# 클러스터롤바인딩
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: system:discovery
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:discovery
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: system:authenticated
+```
+주체를 보면 system:authenticated 그룹으로 되어 있습니다. 이 그룹은 클러스터에 대해 성공적으로 인증된 모든 사용자에게 할당됩니다.
+
+저희가 만든 파드는 생성될 때, 서비스어카운트(default)의 인증파일이 `/var/run/secrets/kubernetes.io/serviceaccount` 경로에 생성됩니다. 그리고 이 안에 있는 인증서와 토큰으로 API 서버에 인증합니다.
+
+그러면 저희가 만든 파드는 위 주체의 조건을 만족으로 클러스터롤에 명시된 URL에 접근할 수 있습니다. 한번 확인해보겠습니다.
+
+![alt text](./images/kube-api.png)
+
+그렇다면 저 주체를 바꾸면 URL 요청을 거부당한다는 뜻입니다.
+```YAML
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: Test
+```
+
+클러스터롤바인딩에서 system:authenticated 그룹을 임의의 문자로 바꾸고 다시 api를 호출해보겠습니다.
+
+`curl localhost:8001/api`
+```JSON
+{
+  "kind": "Status",
+  "apiVersion": "v1",
+  "metadata": {},
+  "status": "Failure",
+  "message": "forbidden: User \"system:serviceaccount:test-a:default\" cannot get path \"/api\"",
+  "reason": "Forbidden",
+  "details": {},
+  "code": 403
+}
+
+의도한대로 해당 url에 대해 요청을 수행할 수 없었습니다.

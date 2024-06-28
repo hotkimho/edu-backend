@@ -434,3 +434,75 @@ subjects:
 }
 
 의도한대로 해당 url에 대해 요청을 수행할 수 없었습니다.
+
+
+### 클러스터롤 실습(특정 네임스페이스 리소스에 액세스 권한 부여)
+클러스터롤이 네임스페이스를 갖는 일반적인 롤바인딩과 바인딩될 수 있습니다.
+
+먼저 사전에 정의된 `view` 클러스터롤을 살펴보겠습니다.
+
+```YAML
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: view
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - endpoints
+  - persistentvolumeclaims
+  - persistentvolumeclaims/status
+  - pods
+  - replicationcontrollers
+  - replicationcontrollers/scale
+  - serviceaccounts
+  - services
+  verbs:
+  - get
+  - list
+  - watch
+```
+이 클러스터롤은 규칙이 많지만 네임스페이스에 지정된 리소스가 정의되어 있습니다.
+
+클러스터롤은 클러스터롤바인딩, 롤바인딩 중 어디에 바인드 되느냐에 따라 다릅니다.
+
+`클러스터롤바인딩을 생성하고 클러스터롤을 참조하면 바인딩에 나열된 주체는 모든 네임스페이스에 있는 지정된 리소스를 볼 수 있습니다.`
+
+`롤바인딩을 생성하고 클러스터롤을 참조하면 나열된 주체가 네임스페이스에 있는 리소스만 볼 수 있습니다.`
+
+```
+# 디폴트 서비스어카운트에 view 클러스터롤이랑 클러스터바인딩
+kubectl  create clusterrolebinding view-test --clusterrole=view --serviceaccount=test-a:default
+```
+이렇게 클러스터바인딩을 생성하면, `test-a` 네임스페이스의 default 서비스어카운트를 가지는 파드에서 모든 네임스페이스에 대해 요청(클러스터롤에 허용된 리소스) 할 수 있습니다.
+
+```
+# test-a 에 존재하는 파드 조회
+curl localhost:8001/api/v1/namespaces/test-a/pods
+
+# test-b 에 존재하는 파드 조회
+curl localhost:8001/api/v1/namespaces/test-b/pods
+
+# 모든 네임스페이스에 있는 파드 조회
+curl localhost:8001/api/v1/pods
+```
+
+다른 네임스페이스 요청, 모든 네임스페이스에 대한 요청이 모두 정상적으로 동작됩니다.
+
+![image](./images/view-test.png)
+
+그림과 같이 네임스페이스가 지정된 리소스를 참조하는 클러스터롤을 클러스터롤과 바인딩하면 모든 네임스페이스에 대해 지정된 리소스를 액세스할 수 있습니다.
+
+```
+# view 클러스터롤, 롤바인딩
+kubectl create rolebinding view-test-role --clusterrole=view --serviceaccount=test-a:default -n test-a
+```
+
+위에서 실습한 요청을 다시 해보겠습니다.
+- 자기 네임스페이스 파드 조회(성공)
+- 다른 네임스페이스 파드 조회(실패)
+- 모든 네임스페이스 파드 조회(실패)
+
+클러스터롤이랑 일반적인 롤 바인딩을 했을 때 다른 특정 네임스페이스나 모든 네임스페이스에 나열할 수 없습니다.

@@ -261,3 +261,98 @@ subjects:
 ```
 
 test-b 네임스페이스에서 test-a 네임스페이스의 서비스 리소스를 가져온 걸 확인할 수 있었습니다.
+
+### 클러스터 롤 실습(클러스터 리소스)
+클러스터롤은 네임스페이스를 지정하지 않는 리소스에 대한 롤을 만들 수 있습니다.
+
+```YAML
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pv-reader
+rules:
+- apiGroups: [""]
+  resources: ["persistentvolumes"]
+  verbs: ["get", "list"]
+```
+PV에 대해 `get`, `list` 권한을 설정했습니다.
+
+먼저 바인딩을 하기 전 PV를 조회해보겠습니다.
+
+`curl localhost:8001/api/v1/persistentvolumes`
+
+```JSON
+{
+  "kind": "Status",
+  "apiVersion": "v1",
+  "metadata": {},
+  "status": "Failure",
+  "message": "persistentvolumes is forbidden: User \"system:serviceaccount:test-a:default\" cannot list resource \"persistentvolumes\" in API group \"\" at the cluster scope",
+  "reason": "Forbidden",
+  "details": {
+    "kind": "persistentvolumes"
+  },
+  "code": 403
+}
+```
+PV는 네임스페이스에 연관되지 않기 때문에 URL에 namespaces가 없습니다.
+
+```YAML
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pv-test
+  namespace: test-a
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: test-a
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: pv-reader
+```
+
+클러스터롤은 일반 롤바인딩을 사용해서도 주체에 바인딩할 수 있습니다.
+
+클러스터롤, 롤바인딩을 만들었음에도 정상적으로 PV요청을 수행할 수 없습니다. 이전과 똑같은 403에러가 발생합니다.
+
+클러스터롤에 롤바인딩을 사용할 수 있지만, 클러스터 리소스에 액세스 권한을 부여하려면 클러스터롤바인딩을 사용해야합니다.
+
+```YAML
+# 클러스터롤바인딩
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pv-test
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: test-a
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: pv-reader
+```
+
+`curl localhost:8001/api/v1/persistentvolumes`
+
+```JSON
+{
+  "kind": "PersistentVolumeList",
+  "apiVersion": "v1",
+  "metadata": {
+    "resourceVersion": "11261561"
+  },
+  "items": [
+    ...
+  ]
+}
+```
+
+클러스터롤 바인딩을 만든 후 PV를 요청하면 정상적으로 실행되는걸 확인할 수 있습니다.
+
+![image](./images/cluserbinding.png)
+
+이 그림처럼 `test-a` 네임스페이스에 default 서비스어카운트는 클러스터바인딩을 통해 pv에 대한 접근를 가지는 클러스터롤과 바인딩 되어 있습니다. 그래서 클러스터 수준의 리소스인 PV에 대해 요청(조회) 할 수 있습니다.
+

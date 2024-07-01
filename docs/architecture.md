@@ -64,7 +64,7 @@ RAFT 합의 알고리즘은 다음 상태(데이터 변경)가 되기 위해서�
 ![alt text](./images/etcd-raft.png)
 
 ### API 서버
-- 다른 모든 구성 요소와 통신하며, RESTful API로 상태에 대해 CRUD 가능(etcd에 저장)
+- 다른 모든 구성 요소와 통신하며 RESTful API를 통해 상태에 대해 CRUD 작업을 수행하며, etcd에 제이터를 저장합니다.
 - 두 개 이상의 인스턴스를 실행하여 고가용성 보장할 수 있음
 
 ![image](./images/api-server.png)

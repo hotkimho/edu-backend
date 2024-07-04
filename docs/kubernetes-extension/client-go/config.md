@@ -28,7 +28,7 @@ func BuildConfigFromFlags(masterUrl, kubeconfigPath string) (*restclient.Config,
 }
 ```
 - masterURL, kubeconfigPath가 둘다 주어지지 않은 경우, `InClusterConfig()` 함수 호출
-- 
+
 
 ### 함수 깊이
 - BuildConfigFromFlags

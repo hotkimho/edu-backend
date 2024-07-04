@@ -1,9 +1,13 @@
 ## 목차
 - [목차](#목차)
 - [clientcmd.BuildConfigFromFlags](#clientcmdbuildconfigfromflags)
-  - [함수 뎁스](#함수-뎁스)
+  - [함수 뎁스](#함수-깊이)
   - [InClusterConfig](#inclusterconfig)
   - [DeferredLoadingClientConfig.ClientConfig](#deferredloadingclientconfigclientconfig)
+- [newconfig](#newforconfig)
+  - [함수 깊이](#함수-깊이-1)
+  - [HTTPClientFor(서버 인증 클라이언트 생성)](#httpclientfor서버-인증-클라이언트-생성)
+  - [NewForConfigAndClient(API 리소스 클라이언트 생성)](#newforconfigandclientapi-리소스-클라이언트-생성)
   
 ##  clientcmd.BuildConfigFromFlags
 - 쿠버네티스 API 서버와 통신하기 위한 설정을 생성
@@ -25,7 +29,7 @@ func BuildConfigFromFlags(masterUrl, kubeconfigPath string) (*restclient.Config,
 ```
 - masterURL, kubeconfigPath가 둘다 빈 스트링인 경우, `restclient.InClusterConfig()` 함수 호출
 
-### 함수 뎁스
+### 함수 깊이
 - BuildConfigFromFlags
   - InClusterConfig
   - NewNonInteractiveDeferredLoadingClientConfig

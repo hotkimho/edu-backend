@@ -158,12 +158,12 @@
       result := c.newObject()
       err := c.client.Put().
           NamespaceIfScoped(c.namespace, c.namespace != ""). // 수정할 리소스 네임스페이스
-          Resource(c.resource).							   // 수정할 리소스 명시
-          Name(obj.GetName()).							   // 수정할 리소스 이름
+          Resource(c.resource).							     // 수정할 리소스 명시
+          Name(obj.GetName()).							     // 수정할 리소스 이름
           VersionedParams(&opts, c.parameterCodec).          // 인코딩/디코딩
-          Body(obj).										   // 수정할 데이터
-          Do(ctx).										   // API 서버에 요청
-          Into(result)									   // 수정된 결과 저장
+          Body(obj).										 // 수정할 데이터
+          Do(ctx).										     // API 서버에 요청
+          Into(result)									     // 수정된 결과 저장
       return result, err
     }
 ```

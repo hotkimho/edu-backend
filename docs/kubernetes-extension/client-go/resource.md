@@ -6,7 +6,7 @@
 
 ### 리소스 클라이언트 생성(deployment)
 ```go
-// 1. 리소스 클라이언트 생성
+    // 1. 리소스 클라이언트 생성
     deploymentsClient := clientset.AppsV1().Deployments(apiv1.NamespaceDefault)
         
     // 2. 리소스 구현체 반환	
@@ -115,6 +115,8 @@
 		...
 	    result, err := l.list(ctx, opts)
         if err == nil {
+			// watch-cache에 저장된 데이터랑 일관성 검사
+			// KUBE_LIST_FROM_CACHE_INCONSISTENCY_DETECTOR 환경 변수가 설정된 경우만 기능 실행
             consistencydetector.CheckListFromCacheDataConsistencyIfRequested(ctx, "list request for "+l.client.resource, l.list, opts, result)
         }
 	    return result, err
@@ -133,3 +135,36 @@
 - 리소스 리스트 조회 시 `list(context, 조회 옵션)`을 사용하여 리소스 리스트 조회
 - 단일 리소스 조회 시, 이름을 명시하고 리스트 구현 시 리소스만 명시하여 조회
 
+### 리소스 업데이트
+```go
+    // 1. 리소스 클라이언트 생성
+    deploymentsClient := clientset.AppsV1().Deployments(apiv1.NamespaceDefault)
+	
+	// 2. 업데이트할 리소스(조회)
+    result, getErr := deploymentsClient.Get(context.TODO(), "demo-deployment", metav1.GetOptions{})
+	
+	// 3. 리소스 업데이트
+    result.Spec.Replicas = int32Ptr(2)                           
+    result.Spec.Template.Spec.Containers[0].Image = "nginx:1.13"
+    result.Annotations = map[string]string{
+        "test-v1": "test-v1",
+    }
+    _, updateErr := deploymentsClient.Update(context.TODO(), result, metav1.UpdateOptions{})
+	
+	// 4. Update 메소드
+    func (c *Client[T]) Update(ctx context.Context, obj T, opts metav1.UpdateOptions) (T, error) {
+	// 업데이트된 결과를 담을 오브젝트
+	result := c.newObject()
+	err := c.client.Put().
+		NamespaceIfScoped(c.namespace, c.namespace != ""). // 수정할 리소스 네임스페이스
+		Resource(c.resource).							   // 수정할 리소스 명시
+		Name(obj.GetName()).							   // 수정할 리소스 이름
+		VersionedParams(&opts, c.parameterCodec).          // 인코딩/디코딩
+		Body(obj).										   // 수정할 데이터
+		Do(ctx).										   // API 서버에 요청
+		Into(result)									   // 수정된 결과 저장
+	return result, err
+}
+```
+- 리소스 클라이언트에 정의된 `Update` 메소드를 사용하여 리소스 업데이트
+- 리소스 객체에서 수정할 값을 설정한 후, `update(context, 리소스, 업데이트 옵션)`을 사용하여 리소스 업데이트

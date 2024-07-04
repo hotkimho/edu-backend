@@ -153,18 +153,50 @@
 	
 	// 4. Update 메소드
     func (c *Client[T]) Update(ctx context.Context, obj T, opts metav1.UpdateOptions) (T, error) {
-	// 업데이트된 결과를 담을 오브젝트
-	result := c.newObject()
-	err := c.client.Put().
-		NamespaceIfScoped(c.namespace, c.namespace != ""). // 수정할 리소스 네임스페이스
-		Resource(c.resource).							   // 수정할 리소스 명시
-		Name(obj.GetName()).							   // 수정할 리소스 이름
-		VersionedParams(&opts, c.parameterCodec).          // 인코딩/디코딩
-		Body(obj).										   // 수정할 데이터
-		Do(ctx).										   // API 서버에 요청
-		Into(result)									   // 수정된 결과 저장
-	return result, err
-}
+	  // 업데이트된 결과를 담을 오브젝트
+      result := c.newObject()
+      err := c.client.Put().
+          NamespaceIfScoped(c.namespace, c.namespace != ""). // 수정할 리소스 네임스페이스
+          Resource(c.resource).							   // 수정할 리소스 명시
+          Name(obj.GetName()).							   // 수정할 리소스 이름
+          VersionedParams(&opts, c.parameterCodec).          // 인코딩/디코딩
+          Body(obj).										   // 수정할 데이터
+          Do(ctx).										   // API 서버에 요청
+          Into(result)									   // 수정된 결과 저장
+      return result, err
+    }
 ```
 - 리소스 클라이언트에 정의된 `Update` 메소드를 사용하여 리소스 업데이트
 - 리소스 객체에서 수정할 값을 설정한 후, `update(context, 리소스, 업데이트 옵션)`을 사용하여 리소스 업데이트
+
+### 리소스 삭제
+```go
+    // 1. 리소스 클라이언트 생성
+    deploymentsClient := clientset.AppsV1().Deployments(apiv1.NamespaceDefault)
+    
+	// 2. 리소스 삭제
+    deletePolicy := metav1.DeletePropagationForeground // 리소스 삭제 옵션
+    err := deploymentsClient.Delete(context.TODO(), "demo-deployment", metav1.DeleteOptions{
+        PropagationPolicy: &deletePolicy,
+    })
+	
+	// 3. Delete 메소드
+	func (c *Client[T]) Delete(ctx context.Context, name string, opts metav1.DeleteOptions) error {
+      return c.client.Delete().
+          NamespaceIfScoped(c.namespace, c.namespace != ""). // 삭제할 리소스 네임스페이스
+          Resource(c.resource).                              // 삭제할 리소스 명시
+          Name(name).                                        // 삭제할 리소스 이름
+          Body(&opts).                                       // 삭제 옵션
+          Do(ctx).                                           // API 서버 요청
+          Error()                                            // 결과(에러) 반환
+    }
+```
+- 리소스 클라이언트에 정의된 `Delete` 메소드를 사용하여 리소스 삭제
+- 리소스 삭제 시, `delete(context, 리소스 이름, 삭제 옵션)`을 사용하여 리소스 삭제
+- 삭제 옵션
+  - Orphan
+    - 부모 오브젝트는 삭제되지만 종속된 오브젝트는 남음
+  - Background
+    - 부모 오브젝트를 즉시 삭제하고 종속된 오브젝트는 백그라운드에서 비동기적으로 삭제
+  - Foreground
+    - 종속된 오브젝트를 모두 삭제하고 부모 오브젝트 삭제

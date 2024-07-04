@@ -1,7 +1,7 @@
 ## 목차
 - [목차](#목차)
 - [clientcmd.BuildConfigFromFlags](#clientcmdbuildconfigfromflags)
-  - [함수 뎁스](#함수-깊이)
+  - [함수 깊이](#함수-깊이)
   - [InClusterConfig](#inclusterconfig)
   - [DeferredLoadingClientConfig.ClientConfig](#deferredloadingclientconfigclientconfig)
 - [newconfig](#newforconfig)
@@ -27,7 +27,8 @@ func BuildConfigFromFlags(masterUrl, kubeconfigPath string) (*restclient.Config,
 		&ConfigOverrides{ClusterInfo: clientcmdapi.Cluster{Server: masterUrl}}).ClientConfig()
 }
 ```
-- masterURL, kubeconfigPath가 둘다 빈 스트링인 경우, `restclient.InClusterConfig()` 함수 호출
+- masterURL, kubeconfigPath가 둘다 주어지지 않은 경우, `InClusterConfig()` 함수 호출
+- 
 
 ### 함수 깊이
 - BuildConfigFromFlags
@@ -75,13 +76,8 @@ func InClusterConfig() (*Config, error) {
 - API 서버 정보, 인증 정보를 포함한 Config 객체 생성 후 반환
 
 ### DeferredLoadingClientConfig.ClientConfig
-```golang
-func NewNonInteractiveDeferredLoadingClientConfig(loader ClientConfigLoader, overrides *ConfigOverrides) ClientConfig {
-	return &DeferredLoadingClientConfig{loader: loader, overrides: overrides, icc: &inClusterClientConfig{overrides: overrides}}
-}
-```
-
-```golang
+```go
+// 1. ClientConfig
 func (config *DeferredLoadingClientConfig) ClientConfig() (*restclient.Config, error) {
 
 	mergedClientConfig, err := config.createClientConfig()
@@ -114,9 +110,34 @@ func (config *DeferredLoadingClientConfig) ClientConfig() (*restclient.Config, e
 	// return the result of the merged client config
 	return mergedConfig, err
 }
+
+// 2. createClientConfig
+func (config *DeferredLoadingClientConfig) createClientConfig() (ClientConfig, error) {
+	...
+	mergedConfig, err := config.loader.Load()
+	if err != nil {
+		return nil, err
+	}
+
+	var currentContext string
+	if config.overrides != nil {
+		currentContext = config.overrides.CurrentContext
+	}
+	if config.fallbackReader != nil {
+		config.clientConfig = NewInteractiveClientConfig(*mergedConfig, currentContext, config.overrides, config.fallbackReader, config.loader)
+	} else {
+		config.clientConfig = NewNonInteractiveClientConfig(*mergedConfig, currentContext, config.overrides, config.loader)
+	}
+	return config.clientConfig, nil
+}
+
+// 3. NewNonInteractiveDeferredLoadingClientConfig
+func NewNonInteractiveDeferredLoadingClientConfig(loader ClientConfigLoader, overrides *ConfigOverrides) ClientConfig {
+	return &DeferredLoadingClientConfig{loader: loader, overrides: overrides, icc: &inClusterClientConfig{overrides: overrides}}
+}
 ```
 - `createClientConfig` 메소드를 호출하여 설정 파일을 생성
-- 생성된 설정을 검증하고, 검증이 완료된 경우 반환
+- 생성된 설정을 검증하고, 검증이 완료된 경우 `restclient.config` 반환
 
 
 ## NewForConfig

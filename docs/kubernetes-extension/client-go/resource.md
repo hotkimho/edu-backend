@@ -29,7 +29,7 @@
     }
 ```
 - 클라이언트셋 그룹에 명시된 리소스의 클라이언트 생성
-- <clientset>.<api-group-version>().<리소스명>(namespace)으로 리소스 구현체 반환
+- "clientset"."api-group-version"()."리소스명"(namespace)으로 리소스 구현체 반환
 
 
 ### 리소스 생성

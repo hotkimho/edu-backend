@@ -1,6 +1,136 @@
 
 ## watcher
 
+### 낙관적 잠금
+- 낙관적 잠금은 데이터 변경이 발생할 때 리소스버전이 etcd에 있는 리소스버전과 일치해야 데이터가 변경됨을 의미
+- 리소스버전이 일치하지 않은 경우 변경 요청은 거부되고 `status 409` 반환
+
+```go
+package main
+
+import (
+	"bufio"
+	"context"
+	"flag"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	appsv1 "k8s.io/api/apps/v1"
+	apiv1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/homedir"
+
+)
+
+func main() {
+	var kubeconfig *string
+	if home := homedir.HomeDir(); home != "" {
+		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
+	} else {
+		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
+	}
+	flag.Parse()
+
+	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
+	if err != nil {
+		panic(err)
+	}
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		panic(err)
+	}
+
+	deploymentsClient := clientset.AppsV1().Deployments(apiv1.NamespaceDefault)
+	deployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "demo-deployment",
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: int32Ptr(3),
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"app": "demo",
+				},
+			},
+			Template: apiv1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"app": "demo",
+					},
+				},
+				Spec: apiv1.PodSpec{
+					Containers: []apiv1.Container{
+						{
+							Name:  "web",
+							Image: "nginx:1.12",
+							Ports: []apiv1.ContainerPort{
+								{
+									Name:          "http",
+									Protocol:      apiv1.ProtocolTCP,
+									ContainerPort: 80,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	_, err = deploymentsClient.Create(context.TODO(), deployment, metav1.CreateOptions{})
+	if err != nil {
+		panic(err)
+	}
+
+	time.Sleep(5 * time.Second)
+	// 생성된 Deployment 조회
+	originDeploy, err := deploymentsClient.Get(context.TODO(), "demo-deployment", metav1.GetOptions{})
+	if err != nil {
+		panic(fmt.Errorf("Failed to get latest version of Deployment: %v", err))
+	}
+	// 생성된 Deployment의 리소스버전 조회
+	fmt.Println("origin ResourceVersion: ", originDeploy.ResourceVersion)
+
+	originDeploy.Spec.Replicas = int32Ptr(2)                           // reduce replica count
+	originDeploy.Spec.Template.Spec.Containers[0].Image = "nginx:1.13" // change nginx version
+	originDeploy.Annotations = map[string]string{
+		"test-v1": "test-v1",
+	}
+
+	// 첫 번째 업데이트
+	updatedDeploy, err := deploymentsClient.Update(context.TODO(), originDeploy, metav1.UpdateOptions{})
+	if err != nil {
+		panic(fmt.Errorf("[f] Failed to update Deployment: %v", err))
+	}
+	// 업데이트된 Deployment의 리소스버전 조회
+	fmt.Println("updated ResourceVersion: ", updatedDeploy.ResourceVersion)
+
+	originDeploy.Spec.Replicas = int32Ptr(5)                           // reduce replica count
+	originDeploy.Spec.Template.Spec.Containers[0].Image = "nginx:1.14" // change nginx version
+	originDeploy.Annotations = map[string]string{
+		"version": "update-1",
+	}
+
+	// 두 번째 업데아트(첫 리소스 버전을 가지고 있으므로 에러 발생)
+	_, err = deploymentsClient.Update(context.TODO(), originDeploy, metav1.UpdateOptions{})
+	if err != nil {
+		panic(fmt.Errorf("[s] Failed to update Deployment: %v", err))
+	}
+}
+```
+```
+origin ResourceVersion:  17217419
+updated ResourceVersion:  17217442
+panic: [s] Failed to update Deployment: Operation cannot be fulfilled on deployments.apps "demo-deployment": the object has been modified; please apply your changes to the latest version and try again
+```
+- 첫 번째 업데이트는 리소스버전이 일치하여 업데이트 성공
+- 두 번째 업데이트는 리소스버전이 일치하지 않아 업데이트 실패
+
 ### watcher 메소드
 ```go
 // 1. watch 메소드
@@ -302,4 +432,4 @@ func main() {
 ```
 - Bookmarks 이벤트 예제
 - 첫 `watch` 메소드 사용 시, ResourceVersion을 갱신하고, 북마크 이벤트를 수신하면 해당 ResourceVersion을 저장
-- 연결이 끊기고 다시 `watch` 메소드 사용 시, ResourceVersion 이후 이벤트를 수신하고, 북마크 이벤트를 수신하면 해당 ResourceVersion을 저장
+- 연결이 끊기고 다시 `watch` 메소드 사용 시, ResourceVersion 이후 이벤트를 수신하고,: 북마크 이벤트를 수신하면 해당 ResourceVersion을 저장

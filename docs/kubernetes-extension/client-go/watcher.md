@@ -175,3 +175,131 @@ for event := range watcher.ResultChan() {
 ```
 - `watcher.ResultChan()`을 통해 `StreamWatcher`의 `result` 채널을 대기하고 데이터를 수신
 - 수신된 데이터를 이벤트 타입과 객체로 변환하여 사용
+
+### 이벤트 타입
+```go
+type Event struct {
+	Type EventType
+	Object runtime.Object
+}
+
+type EventType string
+
+const (
+Added    EventType = "ADDED"
+Modified EventType = "MODIFIED"
+Deleted  EventType = "DELETED"
+Bookmark EventType = "BOOKMARK"
+Error    EventType = "ERROR"
+)
+```
+- `Event` 구조체는 이벤트 타입을 가짐
+- 이벤트 타입은 `ADDED`, `MODIFIED`, `DELETED`, `BOOKMARK`, `ERROR`가 있음
+- ADDED, MODIFIED
+  - 새로운 리소스가 생성되었거나, 리소스의 상태가 변경되었을 때 발생
+- DELETED
+  - 리소스가 삭제되었을 때 발생
+- ERROR
+  - 이벤트 수신 중 에러가 발생했을 때 발생
+- BOOKMARK
+  - 현재 수신된 이벤트의 위치를 나타냄
+  - ResourceVersion을 기준으로 이벤트를 수신하고, BOOKMARK 이벤트를 수신하면 해당 ResourceVersion을 저장하여 다음 이벤트를 수신할 때 사용
+
+```go
+package main
+
+import (
+	"context"
+	"flag"
+	"path/filepath"
+	"time"
+
+	corev1 "k8s.io/api/core/v1"
+
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/homedir"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog/v2"
+)
+
+func main() {
+	var kubeconfig *string
+	if home := homedir.HomeDir(); home != "" {
+		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
+	} else {
+		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
+	}
+	flag.Parse()
+
+	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
+	if err != nil {
+		panic(err)
+	}
+	client, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		panic(err)
+	}
+
+	podWatcher, err := client.CoreV1().Pods("default").
+		Watch(context.TODO(), metav1.ListOptions{
+			AllowWatchBookmarks: true,
+		})
+
+	if err != nil {
+		klog.Fatal(err)
+	}
+	var lastResourceVersion string
+
+	go func() {
+		for event := range podWatcher.ResultChan() {
+			// 북마크 이벤트를 수신하면 리소스버전 갱신
+			if event.Type == "BOOKMARK" {
+				klog.Infof("[POD] BOOKMARK: %s", event.Object.(*corev1.Pod).GetResourceVersion())
+				lastResourceVersion = event.Object.(*corev1.Pod).GetResourceVersion()
+			} else if pod, ok := event.Object.(*corev1.Pod); ok {
+				klog.Infof("[POD] %s: %s", event.Type, pod.GetName())
+				// 이벤트 수신 시마다 리소스버전 갱신
+				lastResourceVersion = pod.GetResourceVersion()
+			}
+		}
+	}()
+
+	time.Sleep(5 * time.Second)
+	podWatcher.Stop()
+
+	/*
+		이 시간에 새로운 파드를 생성/삭제
+	*/
+	
+	time.Sleep(20 * time.Second)
+
+	// 북마크 이벤트 간격은 10분(default)
+	podWatcher, err = client.CoreV1().Pods("default").
+		Watch(context.TODO(), metav1.ListOptions{
+			ResourceVersion:     lastResourceVersion,
+			AllowWatchBookmarks: true,
+		})
+	if err != nil {
+		klog.Fatal(err)
+	}
+
+	for event := range podWatcher.ResultChan() {
+		if event.Type == "BOOKMARK" {
+			klog.Infof("[POD] BOOKMARK: %s", event.Object.(*corev1.Pod).GetResourceVersion())
+			lastResourceVersion = event.Object.(*corev1.Pod).GetResourceVersion()
+		} else if pod, ok := event.Object.(*corev1.Pod); ok {
+			klog.Infof("[POD] %s: %s", event.Type, pod.GetName())
+			lastResourceVersion = pod.GetResourceVersion()
+		}
+	}
+
+	// close watcher
+	podWatcher.Stop()
+}
+
+```
+- Bookmarks 이벤트 예제
+- 첫 `watch` 메소드 사용 시, ResourceVersion을 갱신하고, 북마크 이벤트를 수신하면 해당 ResourceVersion을 저장
+- 연결이 끊기고 다시 `watch` 메소드 사용 시, ResourceVersion 이후 이벤트를 수신하고, 북마크 이벤트를 수신하면 해당 ResourceVersion을 저장
